@@ -142,13 +142,13 @@ export default function HomePage() {
       <section ref={heroRef} className="relative h-screen min-h-[700px] flex items-center justify-center overflow-hidden">
         {/* Image de fond avec parallax */}
         <div
-          className="absolute inset-0 w-full h-[120%]"
+          className="absolute inset-0 w-full h-[105%]"
           style={{ transform: `translateY(-${heroOffset}px)` }}
         >
           <img
             src="/images/feelmebanniere.jpeg"
             alt="Feel Me — Les senteurs du paradis"
-            className="w-full h-full object-cover object-center"
+            className="w-full h-full object-cover object-center scale-100"
           />
         </div>
 
