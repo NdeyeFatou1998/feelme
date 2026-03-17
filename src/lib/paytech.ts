@@ -42,17 +42,23 @@ export interface PaymentResponse {
  * Retourne l'URL de redirection vers la page de paiement
  */
 export async function createPaymentRequest(params: PaymentRequestParams): Promise<PaymentResponse> {
-  const appUrl = process.env.APP_URL || 'http://localhost:3000';
+  /* --- URL de base : utiliser APP_URL, VERCEL_PROJECT_PRODUCTION_URL, ou fallback --- */
+  const appUrl = process.env.APP_URL
+    || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
+    || 'https://feel-me.store';
+
+  console.log('[PAYTECH] APP_URL utilisée:', appUrl);
   
   /* --- Construction du body de la requête --- */
+  /* IMPORTANT: item_price DOIT être un string pour PayTech */
   const body = {
     item_name: params.itemName,
-    item_price: params.itemPrice,
-    currency: 'XOF',                          // Franc CFA
+    item_price: String(params.itemPrice),       // PayTech exige un string
+    currency: 'XOF',                            // Franc CFA
     ref_command: params.refCommand,
     command_name: params.commandName,
-    env: process.env.PAYTECH_ENV || 'test',    // 'test' ou 'prod'
-    ipn_url: `${appUrl}/api/payment/ipn`,      // URL de notification IPN
+    env: process.env.PAYTECH_ENV || 'test',     // 'test' ou 'prod'
+    ipn_url: `${appUrl}/api/payment/ipn`,       // URL de notification IPN
     success_url: `${appUrl}/commande/succes?ref=${params.refCommand}`,
     cancel_url: `${appUrl}/commande/annulee?ref=${params.refCommand}`,
     custom_field: JSON.stringify(params.orderData || {
@@ -61,6 +67,8 @@ export async function createPaymentRequest(params: PaymentRequestParams): Promis
       phone: params.customerPhone,
     }),
   };
+
+  console.log('[PAYTECH] Body envoyé:', JSON.stringify(body, null, 2));
 
   /* --- Headers avec clés API --- */
   const headers = {
