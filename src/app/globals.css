@@ -1,0 +1,320 @@
+@import "tailwindcss";
+
+/* ============================================
+ * FEEL ME — Global Styles Premium
+ * Variables, animations scroll-reveal,
+ * shimmer, parallax, glassmorphism, particules
+ * ============================================ */
+
+:root {
+  --background: #fafafa;
+  --foreground: #1a1a1a;
+  --gold: #c9a84c;
+  --gold-light: #e8d48b;
+  --gold-dark: #a88a2e;
+  --cream: #fffdf9;
+  --cream-dark: #f9f3e8;
+  --border-light: #f0e6d3;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-gold: var(--gold);
+  --color-gold-light: var(--gold-light);
+  --color-gold-dark: var(--gold-dark);
+  --color-cream: var(--cream);
+  --color-cream-dark: var(--cream-dark);
+  --color-border-light: var(--border-light);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* ===== GLOBAL BODY ===== */
+html {
+  scroll-behavior: smooth;
+}
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), 'Helvetica Neue', Arial, sans-serif;
+  overflow-x: hidden;
+}
+
+/* --- Scrollbar personnalisée premium --- */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #c9a84c 0%, #e8d48b 100%);
+  border-radius: 10px;
+}
+
+/* ===== SELECTION ===== */
+::selection {
+  background: rgba(201, 168, 76, 0.25);
+  color: #1a1410;
+}
+
+/* ===== PRODUCT CARDS — Hover 3D ===== */
+.product-card {
+  transition: transform 0.5s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+  will-change: transform;
+}
+.product-card:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 25px 60px rgba(201, 168, 76, 0.18), 0 8px 20px rgba(0, 0, 0, 0.06);
+}
+
+/* ===== PROMO BADGE — Pulse doré ===== */
+.promo-badge {
+  animation: pulse-gold 2s infinite;
+}
+@keyframes pulse-gold {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(201, 168, 76, 0.5); }
+  50% { box-shadow: 0 0 0 10px rgba(201, 168, 76, 0); }
+}
+
+/* ===== PRIX BARRÉ ===== */
+.price-strikethrough {
+  text-decoration: line-through;
+  color: #aaa;
+}
+
+/* ===== SCROLL REVEAL — Déclenché par IntersectionObserver ===== */
+/* Les éléments .reveal sont invisibles par défaut, puis animés quand .visible est ajouté */
+.reveal {
+  opacity: 0;
+  transform: translateY(60px);
+  transition: opacity 0.9s cubic-bezier(0.23, 1, 0.32, 1),
+              transform 0.9s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Variantes directionnelles du reveal */
+.reveal-left {
+  opacity: 0;
+  transform: translateX(-80px);
+  transition: opacity 0.9s cubic-bezier(0.23, 1, 0.32, 1),
+              transform 0.9s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.reveal-left.visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.reveal-right {
+  opacity: 0;
+  transform: translateX(80px);
+  transition: opacity 0.9s cubic-bezier(0.23, 1, 0.32, 1),
+              transform 0.9s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.reveal-right.visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.reveal-scale {
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.9s cubic-bezier(0.23, 1, 0.32, 1),
+              transform 0.9s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.reveal-scale.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Délais de cascade pour les éléments en série */
+.reveal-delay-1 { transition-delay: 0.1s; }
+.reveal-delay-2 { transition-delay: 0.2s; }
+.reveal-delay-3 { transition-delay: 0.3s; }
+.reveal-delay-4 { transition-delay: 0.4s; }
+.reveal-delay-5 { transition-delay: 0.5s; }
+.reveal-delay-6 { transition-delay: 0.6s; }
+
+/* ===== HERO — Animations initiales (jouées une seule fois au chargement) ===== */
+.animate-fade-in-down {
+  animation: fadeInDown 0.8s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-30px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.8s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(40px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 1s ease-out forwards;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Délais pour le séquençage du hero */
+.animation-delay-200 { animation-delay: 0.2s; opacity: 0; }
+.animation-delay-400 { animation-delay: 0.4s; opacity: 0; }
+.animation-delay-600 { animation-delay: 0.6s; opacity: 0; }
+.animation-delay-800 { animation-delay: 0.8s; opacity: 0; }
+.animation-delay-1000 { animation-delay: 1.0s; opacity: 0; }
+
+/* ===== GRADIENT ANIMÉ — Titre doré shimmer ===== */
+.animate-gradient {
+  background-size: 200% auto;
+  animation: gradientShift 4s ease infinite;
+}
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ===== SHIMMER — Effet brillance qui traverse l'élément ===== */
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; width: 50%; height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.15) 50%,
+    transparent 100%
+  );
+  animation: shimmerMove 3s ease-in-out infinite;
+}
+@keyframes shimmerMove {
+  0%   { left: -100%; }
+  100% { left: 200%; }
+}
+
+/* ===== GLASSMORPHISM ===== */
+.glass {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.glass-light {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(240, 230, 211, 0.5);
+}
+
+/* ===== PARALLAX IMAGE CONTAINER ===== */
+.parallax-img {
+  will-change: transform;
+  transition: transform 0.1s linear;
+}
+
+/* ===== PARTICULES FLOTTANTES ===== */
+.animate-float-slow   { animation: floatSlow 10s ease-in-out infinite; }
+.animate-float-medium { animation: floatMedium 7s ease-in-out infinite; }
+.animate-float-fast   { animation: floatFast 5s ease-in-out infinite; }
+
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0) translateX(0) rotate(0deg); }
+  25%      { transform: translateY(-25px) translateX(15px) rotate(5deg); }
+  50%      { transform: translateY(-50px) translateX(-10px) rotate(-3deg); }
+  75%      { transform: translateY(-25px) translateX(8px) rotate(2deg); }
+}
+@keyframes floatMedium {
+  0%, 100% { transform: translateY(0) translateX(0) scale(1); }
+  33%      { transform: translateY(-35px) translateX(-20px) scale(1.1); }
+  66%      { transform: translateY(-18px) translateX(20px) scale(0.95); }
+}
+@keyframes floatFast {
+  0%, 100% { transform: translateY(0) translateX(0) scale(1) rotate(0deg); }
+  50%      { transform: translateY(-30px) translateX(12px) scale(1.2) rotate(10deg); }
+}
+
+/* ===== GLOW PULSE — Bouton CTA principal ===== */
+.btn-glow {
+  position: relative;
+  z-index: 1;
+}
+.btn-glow::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #c9a84c, #e8d48b, #c9a84c);
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  filter: blur(12px);
+}
+.btn-glow:hover::before {
+  opacity: 0.6;
+  animation: glowPulse 1.5s ease-in-out infinite;
+}
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.4; filter: blur(12px); }
+  50%      { opacity: 0.7; filter: blur(18px); }
+}
+
+/* ===== LIGNE DORÉE ANIMÉE (séparateur) ===== */
+.gold-line {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #c9a84c, #e8d48b, #c9a84c, transparent);
+  background-size: 200% 100%;
+  animation: goldLineMove 3s linear infinite;
+}
+@keyframes goldLineMove {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ===== IMAGE ZOOM AU SURVOL ===== */
+.img-zoom {
+  overflow: hidden;
+}
+.img-zoom img {
+  transition: transform 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.img-zoom:hover img {
+  transform: scale(1.08);
+}
+
+/* ===== TEXTE APPARITION LETTRE PAR LETTRE (via JS) ===== */
+.text-reveal-char {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(20px);
+  animation: charReveal 0.4s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+@keyframes charReveal {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== COMPTEUR SCROLL INDICATOR ===== */
+.scroll-indicator {
+  animation: scrollBounce 2s ease-in-out infinite;
+}
+@keyframes scrollBounce {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  50%      { transform: translateY(12px); opacity: 0.5; }
+}
+
+/* ===== MAGNETIC HOVER (pour boutons premium) ===== */
+.magnetic-hover {
+  transition: transform 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.magnetic-hover:hover {
+  transform: scale(1.05);
+}
+.magnetic-hover:active {
+  transform: scale(0.97);
+}
