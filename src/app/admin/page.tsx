@@ -17,7 +17,7 @@ import { useRouter } from 'next/navigation';
 import {
   Package, Tag, Layers, ShoppingCart, LogOut, Plus, Trash2, Edit3,
   Save, X, Image as ImageIcon, Loader2, BarChart3, Eye, EyeOff,
-  ChevronDown, ChevronUp, Menu, XIcon, Users, TrendingUp, FileDown
+  ChevronDown, ChevronUp, Menu, XIcon, Users, TrendingUp, FileDown, Settings as SettingsIcon
 } from 'lucide-react';
 import ResellerPacksTab from './reseller-packs-tab';
 
@@ -53,7 +53,7 @@ interface OrderData {
 export default function AdminDashboard() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'categories' | 'packs' | 'reseller-packs' | 'orders'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'categories' | 'packs' | 'reseller-packs' | 'orders' | 'settings'>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   /* --- Données chargées depuis l'API --- */
@@ -138,6 +138,7 @@ export default function AdminDashboard() {
     { id: 'packs' as const, label: 'Packs', icon: Layers },
     { id: 'reseller-packs' as const, label: 'Packs Revendeurs', icon: Users },
     { id: 'orders' as const, label: 'Commandes', icon: ShoppingCart },
+    { id: 'settings' as const, label: 'Paramètres', icon: SettingsIcon },
   ];
 
   return (
@@ -212,6 +213,7 @@ export default function AdminDashboard() {
               {activeTab === 'packs' && <PacksTab packs={packs} products={products} categories={categories} authFetch={authFetch} onRefresh={loadData} />}
               {activeTab === 'reseller-packs' && <ResellerPacksTab resellerPacks={resellerPacks} products={products} categories={categories} authFetch={authFetch} onRefresh={loadData} />}
               {activeTab === 'orders' && <OrdersTab orders={orders} authFetch={authFetch} onRefresh={loadData} />}
+              {activeTab === 'settings' && <SettingsTab authFetch={authFetch} />}
             </>
           )}
         </div>
@@ -1073,6 +1075,171 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ===============================================================
+   ONGLET : PARAMÈTRES ENTREPRISE
+   Permet à l'admin de configurer : nom, email, téléphone,
+   adresse et site web de l'entreprise.
+   Ces infos apparaissent sur les factures PDF et emails.
+   =============================================================== */
+function SettingsTab({ authFetch }: {
+  authFetch: (url: string, options?: RequestInit) => Promise<Response>;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [form, setForm] = useState({
+    companyName: '',
+    companyEmail: '',
+    companyPhone: '',
+    companyAddress: '',
+    companyWebsite: '',
+  });
+
+  /* --- Charger les paramètres actuels --- */
+  useEffect(() => {
+    fetch('/api/settings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.settings) {
+          const s = data.settings;
+          setForm({
+            companyName: s.company_name || s.companyName || '',
+            companyEmail: s.company_email || s.companyEmail || '',
+            companyPhone: s.company_phone || s.companyPhone || '',
+            companyAddress: s.company_address || s.companyAddress || '',
+            companyWebsite: s.company_website || s.companyWebsite || '',
+          });
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  /* --- Sauvegarder les paramètres --- */
+  const handleSave = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      const res = await authFetch('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
+      }
+    } catch (error) {
+      console.error('Erreur sauvegarde paramètres:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 text-[#c9a84c] animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h2 className="font-[var(--font-playfair)] text-2xl font-bold text-gray-800 mb-6">Paramètres entreprise</h2>
+      <p className="text-sm text-gray-400 mb-6">
+        Ces informations apparaissent sur les factures PDF et dans les emails envoyés aux clients.
+      </p>
+
+      <div className="bg-white rounded-2xl border border-[#f0e6d3] p-6 sm:p-8 space-y-5 max-w-2xl">
+        {/* Nom de l'entreprise */}
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1.5">Nom de l&apos;entreprise</label>
+          <input
+            type="text"
+            name="companyName"
+            value={form.companyName}
+            onChange={handleChange}
+            placeholder="Feel Me"
+            className="w-full px-4 py-3 bg-[#fafafa] border border-[#f0e6d3] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 focus:border-[#c9a84c] transition-all"
+          />
+        </div>
+
+        {/* Email entreprise */}
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1.5">Email entreprise</label>
+          <input
+            type="email"
+            name="companyEmail"
+            value={form.companyEmail}
+            onChange={handleChange}
+            placeholder="contact@feel-me.store"
+            className="w-full px-4 py-3 bg-[#fafafa] border border-[#f0e6d3] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 focus:border-[#c9a84c] transition-all"
+          />
+        </div>
+
+        {/* Téléphone */}
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1.5">Téléphone</label>
+          <input
+            type="tel"
+            name="companyPhone"
+            value={form.companyPhone}
+            onChange={handleChange}
+            placeholder="+221 77 000 00 00"
+            className="w-full px-4 py-3 bg-[#fafafa] border border-[#f0e6d3] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 focus:border-[#c9a84c] transition-all"
+          />
+        </div>
+
+        {/* Adresse */}
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1.5">Adresse</label>
+          <textarea
+            name="companyAddress"
+            value={form.companyAddress}
+            onChange={handleChange}
+            placeholder="Dakar, Sénégal"
+            rows={2}
+            className="w-full px-4 py-3 bg-[#fafafa] border border-[#f0e6d3] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 focus:border-[#c9a84c] transition-all resize-none"
+          />
+        </div>
+
+        {/* Site web */}
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1.5">Site web</label>
+          <input
+            type="text"
+            name="companyWebsite"
+            value={form.companyWebsite}
+            onChange={handleChange}
+            placeholder="www.feel-me.store"
+            className="w-full px-4 py-3 bg-[#fafafa] border border-[#f0e6d3] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 focus:border-[#c9a84c] transition-all"
+          />
+        </div>
+
+        {/* Bouton sauvegarder */}
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] text-white font-semibold rounded-xl hover:shadow-md transition-all disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Enregistrer
+          </button>
+          {saved && (
+            <span className="text-sm text-green-600 font-medium">Paramètres sauvegardés !</span>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -10,10 +10,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Order } from '@/lib/models';
+import { Order, Settings } from '@/lib/models';
 import { syncDatabase } from '@/lib/models';
 import { authenticateAdmin } from '@/lib/auth';
-import { generateInvoicePDF } from '@/lib/invoice';
+import { generateInvoicePDF, CompanyInfo, DEFAULT_COMPANY } from '@/lib/invoice';
 
 export async function GET(
   req: NextRequest,
@@ -39,9 +39,27 @@ export async function GET(
       return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
     }
 
-    /* --- Générer le PDF --- */
+    /* --- Charger les infos entreprise depuis Settings --- */
+    let companyInfo: CompanyInfo = DEFAULT_COMPANY;
+    try {
+      const settings = await Settings.findByPk(1);
+      if (settings) {
+        const s = settings.toJSON();
+        companyInfo = {
+          companyName: s.companyName || DEFAULT_COMPANY.companyName,
+          companyEmail: s.companyEmail || DEFAULT_COMPANY.companyEmail,
+          companyPhone: s.companyPhone || DEFAULT_COMPANY.companyPhone,
+          companyAddress: s.companyAddress || DEFAULT_COMPANY.companyAddress,
+          companyWebsite: s.companyWebsite || DEFAULT_COMPANY.companyWebsite,
+        };
+      }
+    } catch (e) {
+      console.warn('[API/INVOICE] Settings non chargées, valeurs par défaut');
+    }
+
+    /* --- Générer le PDF avec infos entreprise --- */
     const orderData = order.toJSON();
-    const pdfBuffer = await generateInvoicePDF(orderData);
+    const pdfBuffer = await generateInvoicePDF(orderData, companyInfo);
 
     /* --- Retourner le PDF en téléchargement (Uint8Array pour compatibilité TS) --- */
     return new NextResponse(new Uint8Array(pdfBuffer), {

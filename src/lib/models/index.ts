@@ -18,6 +18,7 @@ import Product from './Product';
 import Pack from './Pack';
 import Order from './Order';
 import ResellerPack from './ResellerPack';
+import Settings from './Settings';
 
 /* --- Associations --- */
 
@@ -57,7 +58,10 @@ export async function syncDatabase() {
   await ResellerPack.sync({ force: false });
   console.log('[DB] Table reseller_packs OK.');
   
+  await Settings.sync({ force: false });
+  console.log('[DB] Table settings OK.');
+  
   console.log('[DB] ✅ Toutes les tables synchronisées.');
 }
 
-export { sequelize, Admin, Category, Product, Pack, Order, ResellerPack };
+export { sequelize, Admin, Category, Product, Pack, Order, ResellerPack, Settings };
