@@ -18,14 +18,25 @@ import { syncDatabase, Admin, Category, Product, Pack } from './models';
  * pour stockage direct en DB (pas de serveur de fichiers)
  */
 function imageToBase64(filename: string): string {
-  const imagePath = path.join(process.cwd(), '..', 'assets', 'images', filename);
-  if (!fs.existsSync(imagePath)) {
-    console.warn(`[SEED] Image non trouvée: ${imagePath}`);
-    return '';
+  /* --- Chercher l'image dans plusieurs emplacements possibles --- */
+  const possiblePaths = [
+    path.join(process.cwd(), 'assets', 'images', filename),
+    path.join(process.cwd(), '..', 'assets', 'images', filename),
+    path.join(process.cwd(), 'public', 'images', filename),
+  ];
+  
+  for (const imagePath of possiblePaths) {
+    if (fs.existsSync(imagePath)) {
+      const buffer = fs.readFileSync(imagePath);
+      const base64 = buffer.toString('base64');
+      console.log(`[SEED] Image trouvée: ${imagePath}`);
+      return `data:image/jpeg;base64,${base64}`;
+    }
   }
-  const buffer = fs.readFileSync(imagePath);
-  const base64 = buffer.toString('base64');
-  return `data:image/jpeg;base64,${base64}`;
+  
+  /* --- Fallback : utiliser l'URL publique si le fichier n'est pas accessible --- */
+  console.warn(`[SEED] Image non trouvée en local, utilisation de l'URL publique: ${filename}`);
+  return `/images/${filename}`;
 }
 
 export async function seed() {

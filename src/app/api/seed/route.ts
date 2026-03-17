@@ -19,8 +19,10 @@ export async function GET() {
     });
   } catch (error) {
     console.error('[API/SEED] Erreur:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+    const errorStack = error instanceof Error ? error.stack : '';
     return NextResponse.json(
-      { success: false, message: 'Erreur lors de l\'initialisation' },
+      { success: false, message: `Erreur: ${errorMessage}`, stack: errorStack },
       { status: 500 }
     );
   }
