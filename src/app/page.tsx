@@ -139,7 +139,7 @@ export default function HomePage() {
       {/* ==========================================================
           HERO — Fullscreen avec image bannière, parallax, overlay
           ========================================================== */}
-      <section ref={heroRef} className="relative h-screen min-h-[700px] flex items-center justify-center overflow-hidden">
+      <section ref={heroRef} className="relative h-[75vh] sm:h-[85vh] min-h-[500px] flex items-center justify-center overflow-hidden">
         {/* Image de fond avec parallax */}
         <div
           className="absolute inset-0 w-full h-[105%]"
@@ -148,7 +148,7 @@ export default function HomePage() {
           <img
             src="/images/feelmebanniere.jpeg"
             alt="Feel Me — Les senteurs du paradis"
-            className="w-full h-full object-cover object-center scale-100"
+            className="w-full h-full object-cover object-center"
           />
         </div>
 
