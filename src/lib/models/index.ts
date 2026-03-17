@@ -2,7 +2,12 @@
  * ============================================
  * FEEL ME - Index des modèles Sequelize
  * Initialise les associations entre tables
- * et exporte tous les modèles
+ * et exporte tous les modèles.
+ * 
+ * syncDatabase() crée les tables si elles
+ * n'existent pas (ALTER = false).
+ * En serverless (Vercel), pas de cache car
+ * chaque invocation est un process isolé.
  * ============================================
  */
 
@@ -21,26 +26,38 @@ Product.belongsTo(Category, { foreignKey: 'category_id', as: 'category' });
 // Une catégorie a plusieurs produits
 Category.hasMany(Product, { foreignKey: 'category_id', as: 'products' });
 
-/* --- Variable globale pour tracker si la DB a déjà été synchronisée (survit au hot reload) --- */
-const globalForSync = globalThis as unknown as { dbSynced: boolean };
-
-/* --- Fonction de synchronisation de la DB (une seule fois par process) --- */
+/**
+ * Synchronise toutes les tables dans PostgreSQL.
+ * force:false = crée les tables manquantes, ne supprime rien.
+ * alter:false = ne modifie pas les colonnes existantes.
+ * En production serverless, on exécute toujours car chaque
+ * invocation est un process isolé (pas de state persistant).
+ */
 export async function syncDatabase() {
-  try {
-    await sequelize.authenticate();
-    
-    if (!globalForSync.dbSynced) {
-      console.log('[DB] Connexion PostgreSQL établie avec succès.');
-      
-      // Sync toutes les tables (force:false = créer si n'existent pas, ne pas altérer)
-      await sequelize.sync({ force: false });
-      console.log('[DB] Tables synchronisées.');
-      globalForSync.dbSynced = true;
-    }
-  } catch (error) {
-    console.error('[DB] Erreur de connexion:', error);
-    throw error;
-  }
+  console.log('[DB] Début syncDatabase...');
+  await sequelize.authenticate();
+  console.log('[DB] Authentification réussie.');
+  
+  /* --- Synchroniser chaque modèle individuellement pour un meilleur diagnostic --- */
+  await Admin.sync({ force: false });
+  console.log('[DB] Table admins OK.');
+  
+  await Category.sync({ force: false });
+  console.log('[DB] Table categories OK.');
+  
+  await Product.sync({ force: false });
+  console.log('[DB] Table products OK.');
+  
+  await Pack.sync({ force: false });
+  console.log('[DB] Table packs OK.');
+  
+  await Order.sync({ force: false });
+  console.log('[DB] Table orders OK.');
+  
+  await ResellerPack.sync({ force: false });
+  console.log('[DB] Table reseller_packs OK.');
+  
+  console.log('[DB] ✅ Toutes les tables synchronisées.');
 }
 
 export { sequelize, Admin, Category, Product, Pack, Order, ResellerPack };
