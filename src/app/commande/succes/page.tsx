@@ -21,13 +21,29 @@ function SuccesContent() {
   const ref = searchParams.get('ref');
   const [order, setOrder] = useState<any>(null);
 
-  /* --- Charger les détails de la commande si ref présente --- */
+  /* --- Confirmer le paiement + charger les détails de la commande --- */
+  /* Appelle /api/orders/confirm en fallback si l'IPN PayTech n'a pas fonctionné */
   useEffect(() => {
     if (ref) {
-      fetch(`/api/orders/${ref}`)
+      /* --- 1. Confirmer le paiement (fallback IPN) --- */
+      fetch('/api/orders/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ref }),
+      })
         .then((res) => res.json())
         .then((data) => {
-          if (data.success) setOrder(data.order);
+          if (data.success && data.order) {
+            setOrder(data.order);
+          } else {
+            /* --- 2. Fallback : charger la commande directement --- */
+            fetch(`/api/orders/${ref}`)
+              .then((res) => res.json())
+              .then((data) => {
+                if (data.success) setOrder(data.order);
+              })
+              .catch(console.error);
+          }
         })
         .catch(console.error);
     }

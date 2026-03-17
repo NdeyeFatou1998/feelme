@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/* --- POST : Initier le paiement (sans créer la commande) --- */
+/* --- POST : Créer la commande (pending) puis lancer le paiement --- */
 export async function POST(req: NextRequest) {
   try {
     await syncDatabase();
@@ -58,11 +58,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    /* --- Générer une référence unique pour le paiement --- */
+    /* --- Générer une référence unique --- */
     const ref = generateOrderRef();
+    const total = parseInt(totalAmount);
 
-    /* --- Stocker temporairement les données de commande dans le custom_field --- */
-    const orderData = {
+    /* --- CRÉER la commande en statut 'pending' AVANT le paiement --- */
+    /* Cela garantit que la commande est enregistrée même si l'IPN échoue */
+    const order = await Order.create({
       ref,
       firstName,
       lastName,
@@ -70,24 +72,31 @@ export async function POST(req: NextRequest) {
       email,
       address,
       items,
-      totalAmount: parseInt(totalAmount),
-    };
+      totalAmount: total,
+      status: 'pending',
+      paymentMethod: null,
+      paymentToken: null,
+    });
+    console.log(`[API/ORDERS] Commande ${ref} créée en statut pending`);
 
     /* --- Lancer la demande de paiement PayTech --- */
     const itemNames = items.map((i: { name: string }) => i.name).join(', ');
     const paymentResponse = await createPaymentRequest({
       itemName: `Commande Feel Me - ${ref}`,
-      itemPrice: parseInt(totalAmount),
+      itemPrice: total,
       refCommand: ref,
       commandName: `Feel Me: ${itemNames}`,
       customerEmail: email,
       customerPhone: phone,
       customerName: `${firstName} ${lastName}`,
-      orderData, // Passer les données de commande pour l'IPN
+      /* custom_field réduit : juste la ref, le reste est déjà en DB */
+      orderData: { ref },
     });
 
     if (paymentResponse.success === 1 && paymentResponse.redirect_url) {
-      /* --- Retourner l'URL de paiement PayTech --- */
+      /* --- Mettre à jour le token PayTech sur la commande --- */
+      await order.update({ paymentToken: paymentResponse.token || null });
+
       return NextResponse.json({
         success: true,
         ref,
@@ -95,7 +104,8 @@ export async function POST(req: NextRequest) {
         paymentToken: paymentResponse.token,
       }, { status: 200 });
     } else {
-      /* --- Erreur PayTech --- */
+      /* --- Erreur PayTech : la commande reste en pending --- */
+      console.error('[API/ORDERS] PayTech error:', paymentResponse.message);
       return NextResponse.json({
         success: false,
         error: paymentResponse.message || 'Service de paiement temporairement indisponible. Veuillez réessayer.',

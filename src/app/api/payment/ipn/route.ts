@@ -2,8 +2,11 @@
  * ============================================
  * FEEL ME - API Route /api/payment/ipn
  * Endpoint IPN (Instant Payment Notification)
- * Reçoit les notifications de PayTech après paiement
- * POST : Notification de paiement PayTech
+ * Reçoit les notifications de PayTech après paiement.
+ * 
+ * La commande existe DÉJÀ en statut 'pending' (créée
+ * dans POST /api/orders). L'IPN met à jour le statut
+ * en 'paid' et déclenche l'envoi des emails.
  * ============================================
  */
 
@@ -24,12 +27,9 @@ export async function POST(req: NextRequest) {
     const {
       type_event,
       ref_command,
-      item_price,
       payment_method,
-      client_phone,
       api_key_sha256,
       api_secret_sha256,
-      custom_field,
     } = body;
 
     /* --- Vérification de l'authenticité (SHA256) --- */
@@ -43,52 +43,50 @@ export async function POST(req: NextRequest) {
 
     /* --- Traiter selon le type d'événement --- */
     if (type_event === 'sale_complete') {
-      /* --- Paiement réussi : CRÉER la commande maintenant --- */
+      /* --- Paiement réussi : retrouver la commande existante et mettre à jour --- */
+      const order = await Order.findOne({ where: { ref: ref_command } });
+
+      if (!order) {
+        console.error(`[IPN] Commande ${ref_command} introuvable en DB`);
+        return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
+      }
+
+      const orderStatus = (order as any).dataValues.status;
       
-      // Récupérer les données de commande depuis custom_field
-      let orderData;
-      try {
-        orderData = JSON.parse(custom_field);
-      } catch (e) {
-        console.error('[IPN] Erreur parsing custom_field:', e);
-        return NextResponse.json({ error: 'Données invalides' }, { status: 400 });
+      /* --- Si déjà payée, ne pas re-traiter --- */
+      if (orderStatus === 'paid') {
+        console.log(`[IPN] Commande ${ref_command} déjà payée, skip`);
+        return NextResponse.json({ success: true, message: 'Déjà traitée' });
       }
 
-      // Vérifier si la commande existe déjà
-      const existingOrder = await Order.findOne({ where: { ref: ref_command } });
-      if (existingOrder) {
-        console.log(`[IPN] Commande ${ref_command} existe déjà`);
-        return NextResponse.json({ success: true, message: 'Commande déjà traitée' });
-      }
-
-      // Créer la commande avec statut 'paid'
-      const order = await Order.create({
-        ref: orderData.ref || ref_command,
-        firstName: orderData.firstName,
-        lastName: orderData.lastName,
-        phone: orderData.phone,
-        email: orderData.email,
-        address: orderData.address,
-        items: orderData.items,
-        totalAmount: orderData.totalAmount,
+      /* --- Mettre à jour en 'paid' --- */
+      await order.update({
         status: 'paid',
         paymentMethod: payment_method || 'PayTech',
         paymentToken: body.token || null,
       });
-
-      console.log(`[IPN] Commande ${ref_command} créée et payée via ${payment_method}`);
+      console.log(`[IPN] Commande ${ref_command} mise à jour → paid (${payment_method})`);
 
       /* --- Envoyer les emails (confirmation client + notification admin) --- */
       const orderJson = order.toJSON();
-      await Promise.all([
-        sendOrderConfirmationEmail(orderJson),
-        sendAdminNotificationEmail(orderJson),
-      ]);
+      try {
+        await Promise.all([
+          sendOrderConfirmationEmail(orderJson),
+          sendAdminNotificationEmail(orderJson),
+        ]);
+        console.log(`[IPN] Emails envoyés pour commande ${ref_command}`);
+      } catch (emailError) {
+        /* Ne pas faire échouer l'IPN si l'email échoue */
+        console.error(`[IPN] Erreur envoi emails pour ${ref_command}:`, emailError);
+      }
 
-      console.log(`[IPN] Emails envoyés pour commande ${ref_command}`);
     } else if (type_event === 'sale_canceled') {
-      /* --- Paiement annulé : ne rien créer --- */
-      console.log(`[IPN] Paiement ${ref_command} annulé - aucune commande créée`);
+      /* --- Paiement annulé : mettre à jour le statut --- */
+      const order = await Order.findOne({ where: { ref: ref_command } });
+      if (order) {
+        await order.update({ status: 'cancelled' });
+        console.log(`[IPN] Commande ${ref_command} annulée`);
+      }
     }
 
     return NextResponse.json({ success: true });
