@@ -14,8 +14,22 @@ const globalForDb = globalThis as unknown as { sequelize: Sequelize };
  * Crée ou réutilise l'instance Sequelize.
  * Utilise DATABASE_URL si disponible, sinon les variables individuelles.
  */
-/* --- URL de connexion : supporte DATABASE_URL ou POSTGRES_URL (Neon/Vercel) --- */
-const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
+/* --- URL de connexion : reconstruire à partir des variables Neon si DATABASE_URL n'existe pas --- */
+const dbUrl = process.env.DATABASE_URL || 
+  process.env.POSTGRES_URL || 
+  (() => {
+    // Variables créées par Neon
+    const user = process.env.DATABASE_POSTGRES_USER;
+    const password = process.env.DATABASE_POSTGRES_PASSWORD;
+    const host = process.env.DATABASE_PGHOST;
+    const port = process.env.DATABASE_PORT;
+    const database = process.env.DATABASE_NAME;
+    
+    if (user && host && port && database) {
+      return `postgresql://${user}:${password}@${host}:${port}/${database}`;
+    }
+    return '';
+  })() || '';
 
 export const sequelize: Sequelize =
   globalForDb.sequelize ||

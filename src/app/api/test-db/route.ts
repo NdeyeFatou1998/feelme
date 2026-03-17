@@ -21,6 +21,11 @@ export async function GET() {
       env: {
         DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'NOT_SET',
         POSTGRES_URL: process.env.POSTGRES_URL ? 'SET' : 'NOT_SET',
+        DATABASE_POSTGRES_USER: process.env.DATABASE_POSTGRES_USER ? 'SET' : 'NOT_SET',
+        DATABASE_POSTGRES_PASSWORD: process.env.DATABASE_POSTGRES_PASSWORD ? 'SET' : 'NOT_SET',
+        DATABASE_PGHOST: process.env.DATABASE_PGHOST ? 'SET' : 'NOT_SET',
+        DATABASE_PORT: process.env.DATABASE_PORT ? 'SET' : 'NOT_SET',
+        DATABASE_NAME: process.env.DATABASE_NAME ? 'SET' : 'NOT_SET',
         NODE_ENV: process.env.NODE_ENV,
       }
     });
@@ -35,6 +40,11 @@ export async function GET() {
       env: {
         DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'NOT_SET',
         POSTGRES_URL: process.env.POSTGRES_URL ? 'SET' : 'NOT_SET',
+        DATABASE_POSTGRES_USER: process.env.DATABASE_POSTGRES_USER ? 'SET' : 'NOT_SET',
+        DATABASE_POSTGRES_PASSWORD: process.env.DATABASE_POSTGRES_PASSWORD ? 'SET' : 'NOT_SET',
+        DATABASE_PGHOST: process.env.DATABASE_PGHOST ? 'SET' : 'NOT_SET',
+        DATABASE_PORT: process.env.DATABASE_PORT ? 'SET' : 'NOT_SET',
+        DATABASE_NAME: process.env.DATABASE_NAME ? 'SET' : 'NOT_SET',
         NODE_ENV: process.env.NODE_ENV,
       }
     }, { status: 500 });
