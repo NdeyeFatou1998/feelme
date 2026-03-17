@@ -36,11 +36,13 @@ export async function POST(req: NextRequest) {
     /* --- Si la commande est encore en 'pending', la confirmer --- */
     /* Le client a été redirigé vers success_url = le paiement a réussi côté PayTech */
     if (currentStatus === 'pending') {
+      /* Ne pas écraser paymentMethod si déjà renseigné par l'IPN */
+      const currentMethod = (order as any).dataValues.payment_method || (order as any).dataValues.paymentMethod;
       await order.update({
         status: 'paid',
-        paymentMethod: 'PayTech',
+        ...(currentMethod ? {} : { paymentMethod: 'Paiement en ligne' }),
       });
-      console.log(`[CONFIRM] Commande ${ref} confirmée via fallback (IPN manquant)`);
+      console.log(`[CONFIRM] Commande ${ref} confirmée via fallback (canal: ${currentMethod || 'Paiement en ligne'})`);
 
       /* --- Envoyer les emails --- */
       const updatedOrder = order.toJSON();

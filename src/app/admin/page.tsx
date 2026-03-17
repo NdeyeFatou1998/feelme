@@ -249,9 +249,14 @@ function DashboardTab({ products, packs, orders, categories }: {
     .reduce((sum, o) => sum + (o.totalAmount || o.total_amount || 0), 0);
 
   /* --- Stats par canal de paiement --- */
+  /* PayTech n'est pas un canal réel, c'est un intermédiaire.
+     Les vrais canaux (Wave, OM, etc.) sont renvoyés par l'IPN PayTech.
+     Si paymentMethod est 'PayTech' ou absent, on le classe en 'Paiement en ligne'. */
   const paymentChannels: Record<string, { count: number; revenue: number }> = {};
   orders.forEach(o => {
-    const method = o.payment_method || o.paymentMethod || 'Non précisé';
+    let method = o.payment_method || o.paymentMethod || 'Non précisé';
+    /* Normaliser : PayTech n'est pas un canal final */
+    if (method === 'PayTech') method = 'Paiement en ligne';
     if (!paymentChannels[method]) paymentChannels[method] = { count: 0, revenue: 0 };
     paymentChannels[method].count += 1;
     paymentChannels[method].revenue += (o.totalAmount || o.total_amount || 0);
@@ -263,8 +268,9 @@ function DashboardTab({ products, packs, orders, categories }: {
   /* --- Couleurs par canal de paiement --- */
   const channelColors: Record<string, string> = {
     'Wave': 'bg-blue-500', 'Orange Money': 'bg-orange-500', 'Free Money': 'bg-green-500',
-    'Especes': 'bg-yellow-500', 'PayTech': 'bg-indigo-500', 'Virement bancaire': 'bg-teal-500',
+    'Especes': 'bg-yellow-500', 'Paiement en ligne': 'bg-indigo-400', 'Virement bancaire': 'bg-teal-500',
     'WhatsApp': 'bg-emerald-500', 'Telephone': 'bg-purple-500', 'En boutique': 'bg-pink-500',
+    'Non précisé': 'bg-gray-300',
   };
 
   const catalogStats = [
