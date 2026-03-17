@@ -42,6 +42,8 @@ interface OrderData {
   id: number; ref: string; firstName: string; lastName: string;
   phone: string; email: string; address: string;
   items: any[]; totalAmount: number;
+  deposit: number; remaining: number;
+  source: 'site' | 'manual'; notes: string | null;
   status: string; paymentMethod: string | null;
   createdAt: string;
   /* --- Alias colonnes snake_case depuis la DB --- */
@@ -928,7 +930,7 @@ function PacksTab({ packs, products, categories, authFetch, onRefresh }: {
 }
 
 /* ===============================================================
-   ONGLET : COMMANDES (liste + changement de statut)
+   ONGLET : COMMANDES (liste + changement de statut + création manuelle)
    =============================================================== */
 function OrdersTab({ orders, authFetch, onRefresh }: {
   orders: OrderData[];
@@ -938,6 +940,14 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
   const [expandedOrder, setExpandedOrder] = useState<number | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState<number | null>(null);
   const [downloadingInvoice, setDownloadingInvoice] = useState<number | null>(null);
+  /* --- État formulaire commande manuelle --- */
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [creatingOrder, setCreatingOrder] = useState(false);
+  const [manualForm, setManualForm] = useState({
+    firstName: '', lastName: '', phone: '', email: '', address: '',
+    totalAmount: '', deposit: '', paymentMethod: 'Especes', notes: '',
+    itemsText: '', // Format libre : "2x Parfum 6ml, 1x Pack Duo"
+  });
 
   /* --- Télécharger la facture PDF d'une commande --- */
   const handleDownloadInvoice = async (orderId: number, orderRef: string) => {
@@ -971,10 +981,183 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
     finally { setUpdatingStatus(null); }
   };
 
+  /* --- Créer une commande manuelle --- */
+  const handleCreateManualOrder = async () => {
+    if (!manualForm.firstName || !manualForm.lastName || !manualForm.phone || !manualForm.totalAmount) return;
+    setCreatingOrder(true);
+    try {
+      /* Convertir le texte articles en tableau items */
+      const items = manualForm.itemsText.split(',').filter(s => s.trim()).map((s) => {
+        const trimmed = s.trim();
+        const match = trimmed.match(/^(\d+)\s*x\s*(.+)/i);
+        if (match) {
+          return { type: 'product' as const, itemId: 0, name: match[2].trim(), quantity: parseInt(match[1]), unitPrice: 0 };
+        }
+        return { type: 'product' as const, itemId: 0, name: trimmed, quantity: 1, unitPrice: 0 };
+      });
+
+      const res = await authFetch('/api/orders/manual', {
+        method: 'POST',
+        body: JSON.stringify({
+          firstName: manualForm.firstName,
+          lastName: manualForm.lastName,
+          phone: manualForm.phone,
+          email: manualForm.email || undefined,
+          address: manualForm.address || undefined,
+          items,
+          totalAmount: Number(manualForm.totalAmount),
+          deposit: Number(manualForm.deposit) || 0,
+          paymentMethod: manualForm.paymentMethod,
+          notes: manualForm.notes || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowManualForm(false);
+        setManualForm({ firstName: '', lastName: '', phone: '', email: '', address: '', totalAmount: '', deposit: '', paymentMethod: 'Especes', notes: '', itemsText: '' });
+        onRefresh();
+      }
+    } catch (error) { console.error('Erreur création commande manuelle:', error); }
+    finally { setCreatingOrder(false); }
+  };
+
   return (
     <div>
-      <h2 className="font-[var(--font-playfair)] text-2xl font-bold text-gray-800 mb-6">Commandes</h2>
+      {/* --- En-tête + bouton Nouvelle commande --- */}
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="font-[var(--font-playfair)] text-2xl font-bold text-gray-800">Commandes</h2>
+        <button
+          onClick={() => setShowManualForm(!showManualForm)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] text-white text-sm font-semibold rounded-xl hover:shadow-md transition-all"
+        >
+          <Plus className="w-4 h-4" />
+          Nouvelle commande
+        </button>
+      </div>
 
+      {/* ==========================================
+          FORMULAIRE COMMANDE MANUELLE
+          ========================================== */}
+      {showManualForm && (
+        <div className="bg-white rounded-2xl border border-[#f0e6d3] p-6 mb-6">
+          <h3 className="text-lg font-bold text-gray-800 mb-4">Enregistrer une commande externe</h3>
+          <p className="text-xs text-gray-400 mb-4">Commande reçue par téléphone, WhatsApp, en boutique, etc.</p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            {/* Prénom */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Prénom *</label>
+              <input type="text" value={manualForm.firstName} onChange={(e) => setManualForm({ ...manualForm, firstName: e.target.value })}
+                className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30" placeholder="Prénom du client" />
+            </div>
+            {/* Nom */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Nom *</label>
+              <input type="text" value={manualForm.lastName} onChange={(e) => setManualForm({ ...manualForm, lastName: e.target.value })}
+                className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30" placeholder="Nom du client" />
+            </div>
+            {/* Téléphone */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Téléphone *</label>
+              <input type="tel" value={manualForm.phone} onChange={(e) => setManualForm({ ...manualForm, phone: e.target.value })}
+                className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30" placeholder="+221 77 000 00 00" />
+            </div>
+            {/* Email (optionnel) */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
+              <input type="email" value={manualForm.email} onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })}
+                className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30" placeholder="Optionnel" />
+            </div>
+          </div>
+
+          {/* Adresse */}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Adresse de livraison</label>
+            <input type="text" value={manualForm.address} onChange={(e) => setManualForm({ ...manualForm, address: e.target.value })}
+              className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30" placeholder="Adresse (optionnel)" />
+          </div>
+
+          {/* Articles (texte libre) */}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Articles commandés</label>
+            <textarea value={manualForm.itemsText} onChange={(e) => setManualForm({ ...manualForm, itemsText: e.target.value })}
+              rows={2} className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 resize-none"
+              placeholder="Ex: 2x Parfum 6ml, 1x Pack Duo, 3x Brume corporelle" />
+            <p className="text-xs text-gray-400 mt-1">Séparez par des virgules. Format : quantité x nom</p>
+          </div>
+
+          {/* Montant, Acompte, Mode de paiement */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Montant total (FCFA) *</label>
+              <input type="number" value={manualForm.totalAmount} onChange={(e) => setManualForm({ ...manualForm, totalAmount: e.target.value })}
+                className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30" placeholder="15000" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Acompte versé (FCFA)</label>
+              <input type="number" value={manualForm.deposit} onChange={(e) => setManualForm({ ...manualForm, deposit: e.target.value })}
+                className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30" placeholder="0" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Reçu comment ?</label>
+              <select value={manualForm.paymentMethod} onChange={(e) => setManualForm({ ...manualForm, paymentMethod: e.target.value })}
+                className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30">
+                <option value="Especes">Espèces</option>
+                <option value="Wave">Wave</option>
+                <option value="Orange Money">Orange Money</option>
+                <option value="Free Money">Free Money</option>
+                <option value="Virement bancaire">Virement bancaire</option>
+                <option value="WhatsApp">WhatsApp</option>
+                <option value="Telephone">Téléphone</option>
+                <option value="En boutique">En boutique</option>
+                <option value="Autre">Autre</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Restant calculé automatiquement */}
+          {manualForm.totalAmount && (
+            <div className="mb-4 p-3 bg-[#faf6eb] rounded-lg">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Total :</span>
+                <span className="font-bold text-gray-800">{Number(manualForm.totalAmount).toLocaleString('fr-FR')} FCFA</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Acompte :</span>
+                <span className="font-medium text-green-600">{(Number(manualForm.deposit) || 0).toLocaleString('fr-FR')} FCFA</span>
+              </div>
+              <div className="flex justify-between text-sm border-t border-[#e8d48b] pt-1 mt-1">
+                <span className="text-gray-500 font-medium">Restant dû :</span>
+                <span className="font-bold text-red-500">{Math.max(0, Number(manualForm.totalAmount) - (Number(manualForm.deposit) || 0)).toLocaleString('fr-FR')} FCFA</span>
+              </div>
+            </div>
+          )}
+
+          {/* Notes */}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+            <textarea value={manualForm.notes} onChange={(e) => setManualForm({ ...manualForm, notes: e.target.value })}
+              rows={2} className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 resize-none"
+              placeholder="Commentaires, instructions spéciales..." />
+          </div>
+
+          {/* Boutons */}
+          <div className="flex items-center gap-3">
+            <button onClick={handleCreateManualOrder} disabled={creatingOrder || !manualForm.firstName || !manualForm.lastName || !manualForm.phone || !manualForm.totalAmount}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] text-white text-sm font-semibold rounded-xl hover:shadow-md transition-all disabled:opacity-50">
+              {creatingOrder ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Enregistrer la commande
+            </button>
+            <button onClick={() => setShowManualForm(false)} className="px-4 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition-all">
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          LISTE DES COMMANDES
+          ========================================== */}
       <div className="bg-white rounded-2xl border border-[#f0e6d3] overflow-hidden">
         {orders.length === 0 ? (
           <div className="p-10 text-center text-gray-400 text-sm">Aucune commande</div>
@@ -986,6 +1169,9 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
               const totalAmount = order.total_amount || order.totalAmount || 0;
               const paymentMethod = order.payment_method || order.paymentMethod;
               const isExpanded = expandedOrder === order.id;
+              const isManual = order.source === 'manual';
+              const deposit = order.deposit || 0;
+              const remaining = order.remaining || 0;
 
               return (
                 <div key={order.id}>
@@ -998,6 +1184,7 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-mono font-bold text-gray-800">{order.ref}</p>
                         <StatusBadge status={order.status} />
+                        {isManual && <span className="text-[10px] bg-blue-50 text-blue-600 font-semibold px-2 py-0.5 rounded-full">Manuel</span>}
                       </div>
                       <p className="text-xs text-gray-400 mt-0.5">
                         {firstName} {lastName} • {new Date(order.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -1006,6 +1193,7 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
                     <div className="text-right flex-shrink-0">
                       <p className="text-sm font-bold text-[#c9a84c]">{totalAmount.toLocaleString('fr-FR')} FCFA</p>
                       {paymentMethod && <p className="text-xs text-gray-400">{paymentMethod}</p>}
+                      {remaining > 0 && <p className="text-xs text-red-500 font-medium">Reste: {remaining.toLocaleString('fr-FR')} F</p>}
                     </div>
                     {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                   </div>
@@ -1025,6 +1213,32 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
                           <p className="text-sm">{order.address}</p>
                         </div>
                       </div>
+
+                      {/* Acompte / Restant (visible si commande manuelle ou si acompte > 0) */}
+                      {(isManual || deposit > 0) && (
+                        <div className="grid grid-cols-3 gap-3 mb-4">
+                          <div className="bg-white rounded-lg p-3 text-center">
+                            <p className="text-xs text-gray-400">Total</p>
+                            <p className="text-sm font-bold text-gray-800">{totalAmount.toLocaleString('fr-FR')} F</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center">
+                            <p className="text-xs text-gray-400">Acompte</p>
+                            <p className="text-sm font-bold text-green-600">{deposit.toLocaleString('fr-FR')} F</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center">
+                            <p className="text-xs text-gray-400">Restant dû</p>
+                            <p className={`text-sm font-bold ${remaining > 0 ? 'text-red-500' : 'text-green-600'}`}>{remaining.toLocaleString('fr-FR')} F</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Notes admin */}
+                      {order.notes && (
+                        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                          <p className="text-xs text-yellow-600 font-medium mb-1">Notes</p>
+                          <p className="text-sm text-gray-700">{order.notes}</p>
+                        </div>
+                      )}
 
                       {/* Articles */}
                       <div className="mb-4">

@@ -4,7 +4,9 @@
  * Table des commandes clients
  * Champs : id, ref, firstName, lastName, phone,
  *          email, address, items (JSON), totalAmount,
- *          status, paymentToken, paymentMethod
+ *          status, paymentToken, paymentMethod,
+ *          deposit (acompte), remaining (restant),
+ *          source (site/manual), notes (commentaire)
  * ============================================
  */
 
@@ -39,6 +41,10 @@ export interface OrderAttributes {
   address: string;            // Adresse de livraison
   items: OrderItem[];         // Détail des articles (JSON)
   totalAmount: number;        // Montant total en FCFA
+  deposit: number;             // Acompte versé en FCFA (0 si paiement complet)
+  remaining: number;           // Restant dû en FCFA (0 si tout payé)
+  source: 'site' | 'manual';  // Origine : site web ou saisie manuelle admin
+  notes: string | null;        // Notes/commentaires admin
   status: 'pending' | 'paid' | 'shipped' | 'delivered' | 'cancelled';
   paymentToken: string | null;
   paymentMethod: string | null;
@@ -46,7 +52,7 @@ export interface OrderAttributes {
   updatedAt?: Date;
 }
 
-export interface OrderCreationAttributes extends Optional<OrderAttributes, 'id' | 'status' | 'paymentToken' | 'paymentMethod'> {}
+export interface OrderCreationAttributes extends Optional<OrderAttributes, 'id' | 'status' | 'paymentToken' | 'paymentMethod' | 'deposit' | 'remaining' | 'source' | 'notes'> {}
 
 /* --- Définition du modèle --- */
 class Order extends Model<OrderAttributes, OrderCreationAttributes> implements OrderAttributes {
@@ -59,6 +65,10 @@ class Order extends Model<OrderAttributes, OrderCreationAttributes> implements O
   public address!: string;
   public items!: OrderItem[];
   public totalAmount!: number;
+  public deposit!: number;
+  public remaining!: number;
+  public source!: 'site' | 'manual';
+  public notes!: string | null;
   public status!: 'pending' | 'paid' | 'shipped' | 'delivered' | 'cancelled';
   public paymentToken!: string | null;
   public paymentMethod!: string | null;
@@ -110,6 +120,30 @@ Order.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       field: 'total_amount',
+    },
+    deposit: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'deposit',
+    },
+    remaining: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'remaining',
+    },
+    source: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: 'site',
+      field: 'source',
+    },
+    notes: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      field: 'notes',
     },
     status: {
       type: DataTypes.ENUM('pending', 'paid', 'shipped', 'delivered', 'cancelled'),

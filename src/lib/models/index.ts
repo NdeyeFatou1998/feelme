@@ -52,8 +52,8 @@ export async function syncDatabase() {
   await Pack.sync({ force: false });
   console.log('[DB] Table packs OK.');
   
-  await Order.sync({ force: false });
-  console.log('[DB] Table orders OK.');
+  await Order.sync({ alter: true });
+  console.log('[DB] Table orders OK (alter pour nouveaux champs).');
   
   await ResellerPack.sync({ force: false });
   console.log('[DB] Table reseller_packs OK.');
