@@ -225,17 +225,49 @@ export default function AdminDashboard() {
 }
 
 /* ===============================================================
-   ONGLET : TABLEAU DE BORD (stats résumées)
+   ONGLET : TABLEAU DE BORD (stats détaillées + canaux de paiement)
    =============================================================== */
 function DashboardTab({ products, packs, orders, categories }: {
   products: ProductData[]; packs: PackData[]; orders: OrderData[]; categories: CategoryData[];
 }) {
-  const totalRevenue = orders
-    .filter(o => o.status === 'paid' || o.status === 'delivered' || o.status === 'shipped')
-    .reduce((sum, o) => sum + (o.totalAmount || o.total_amount || 0), 0);
-  const pendingOrders = orders.filter(o => o.status === 'pending').length;
+  /* --- Commandes confirmées (payées, expédiées, livrées) --- */
+  const confirmedOrders = orders.filter(o => o.status === 'paid' || o.status === 'delivered' || o.status === 'shipped');
+  const totalRevenue = confirmedOrders.reduce((sum, o) => sum + (o.totalAmount || o.total_amount || 0), 0);
+  const totalDeposits = orders.reduce((sum, o) => sum + (o.deposit || 0), 0);
+  const totalRemaining = orders.reduce((sum, o) => sum + (o.remaining || 0), 0);
 
-  const stats = [
+  /* --- Stats par statut de commande --- */
+  const statusCounts: Record<string, number> = {};
+  orders.forEach(o => { statusCounts[o.status] = (statusCounts[o.status] || 0) + 1; });
+
+  /* --- Stats site vs manuel --- */
+  const siteOrders = orders.filter(o => o.source !== 'manual');
+  const manualOrders = orders.filter(o => o.source === 'manual');
+  const siteRevenue = siteOrders.filter(o => o.status === 'paid' || o.status === 'delivered' || o.status === 'shipped')
+    .reduce((sum, o) => sum + (o.totalAmount || o.total_amount || 0), 0);
+  const manualRevenue = manualOrders.filter(o => o.status === 'paid' || o.status === 'delivered' || o.status === 'shipped')
+    .reduce((sum, o) => sum + (o.totalAmount || o.total_amount || 0), 0);
+
+  /* --- Stats par canal de paiement --- */
+  const paymentChannels: Record<string, { count: number; revenue: number }> = {};
+  orders.forEach(o => {
+    const method = o.payment_method || o.paymentMethod || 'Non précisé';
+    if (!paymentChannels[method]) paymentChannels[method] = { count: 0, revenue: 0 };
+    paymentChannels[method].count += 1;
+    paymentChannels[method].revenue += (o.totalAmount || o.total_amount || 0);
+  });
+  /* Trier par revenu décroissant */
+  const sortedChannels = Object.entries(paymentChannels).sort((a, b) => b[1].revenue - a[1].revenue);
+  const maxChannelRevenue = sortedChannels.length > 0 ? sortedChannels[0][1].revenue : 1;
+
+  /* --- Couleurs par canal de paiement --- */
+  const channelColors: Record<string, string> = {
+    'Wave': 'bg-blue-500', 'Orange Money': 'bg-orange-500', 'Free Money': 'bg-green-500',
+    'Especes': 'bg-yellow-500', 'PayTech': 'bg-indigo-500', 'Virement bancaire': 'bg-teal-500',
+    'WhatsApp': 'bg-emerald-500', 'Telephone': 'bg-purple-500', 'En boutique': 'bg-pink-500',
+  };
+
+  const catalogStats = [
     { label: 'Produits', value: products.length, icon: Package, color: 'text-blue-500', bg: 'bg-blue-50' },
     { label: 'Catégories', value: categories.length, icon: Tag, color: 'text-green-500', bg: 'bg-green-50' },
     { label: 'Packs', value: packs.length, icon: Layers, color: 'text-purple-500', bg: 'bg-purple-50' },
@@ -246,50 +278,140 @@ function DashboardTab({ products, packs, orders, categories }: {
     <div>
       <h2 className="font-[var(--font-playfair)] text-2xl font-bold text-gray-800 mb-6">Tableau de bord</h2>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {stats.map((s) => (
-          <div key={s.label} className="bg-white rounded-2xl border border-[#f0e6d3] p-5">
-            <div className={`w-10 h-10 ${s.bg} rounded-xl flex items-center justify-center mb-3`}>
-              <s.icon className={`w-5 h-5 ${s.color}`} />
+      {/* === LIGNE 1 : Revenus principaux === */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] rounded-2xl p-5 text-white">
+          <p className="text-xs opacity-80 mb-1">Revenus confirmés</p>
+          <p className="text-2xl font-bold">{totalRevenue.toLocaleString('fr-FR')} FCFA</p>
+          <p className="text-xs opacity-70 mt-1">{confirmedOrders.length} commande{confirmedOrders.length > 1 ? 's' : ''} payée{confirmedOrders.length > 1 ? 's' : ''}</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-[#f0e6d3] p-5">
+          <p className="text-xs text-gray-400 mb-1">Acomptes reçus</p>
+          <p className="text-2xl font-bold text-green-600">{totalDeposits.toLocaleString('fr-FR')} F</p>
+          <p className="text-xs text-gray-400 mt-1">Sur commandes manuelles</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-[#f0e6d3] p-5">
+          <p className="text-xs text-gray-400 mb-1">Restants dus</p>
+          <p className="text-2xl font-bold text-red-500">{totalRemaining.toLocaleString('fr-FR')} F</p>
+          <p className="text-xs text-gray-400 mt-1">A encaisser</p>
+        </div>
+      </div>
+
+      {/* === LIGNE 2 : Catalogue === */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {catalogStats.map((s) => (
+          <div key={s.label} className="bg-white rounded-2xl border border-[#f0e6d3] p-4">
+            <div className={`w-9 h-9 ${s.bg} rounded-xl flex items-center justify-center mb-2`}>
+              <s.icon className={`w-4 h-4 ${s.color}`} />
             </div>
-            <p className="text-2xl font-bold text-gray-800">{s.value}</p>
-            <p className="text-xs text-gray-400 mt-1">{s.label}</p>
+            <p className="text-xl font-bold text-gray-800">{s.value}</p>
+            <p className="text-xs text-gray-400">{s.label}</p>
           </div>
         ))}
       </div>
 
-      {/* Revenus + commandes en attente */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-        <div className="bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] rounded-2xl p-6 text-white">
-          <p className="text-sm opacity-80 mb-1">Revenus totaux</p>
-          <p className="text-3xl font-bold">{totalRevenue.toLocaleString('fr-FR')} FCFA</p>
+      {/* === LIGNE 3 : Statuts + Source === */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        {/* Stats par statut */}
+        <div className="bg-white rounded-2xl border border-[#f0e6d3] p-5">
+          <h3 className="font-semibold text-gray-800 text-sm mb-3">Par statut</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {[
+              { key: 'pending', label: 'En attente', color: 'text-yellow-600', bg: 'bg-yellow-50' },
+              { key: 'paid', label: 'Payées', color: 'text-green-600', bg: 'bg-green-50' },
+              { key: 'shipped', label: 'Expédiées', color: 'text-blue-600', bg: 'bg-blue-50' },
+              { key: 'delivered', label: 'Livrées', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+              { key: 'cancelled', label: 'Annulées', color: 'text-red-600', bg: 'bg-red-50' },
+            ].map((st) => (
+              <div key={st.key} className={`${st.bg} rounded-xl p-3 text-center`}>
+                <p className={`text-lg font-bold ${st.color}`}>{statusCounts[st.key] || 0}</p>
+                <p className="text-xs text-gray-500">{st.label}</p>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="bg-white rounded-2xl border border-[#f0e6d3] p-6">
-          <p className="text-sm text-gray-400 mb-1">Commandes en attente</p>
-          <p className="text-3xl font-bold text-orange-500">{pendingOrders}</p>
+
+        {/* Stats site vs manuel */}
+        <div className="bg-white rounded-2xl border border-[#f0e6d3] p-5">
+          <h3 className="font-semibold text-gray-800 text-sm mb-3">Par source</h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 bg-[#faf6eb] rounded-xl">
+              <div>
+                <p className="text-sm font-medium text-gray-800">Site web</p>
+                <p className="text-xs text-gray-400">{siteOrders.length} commande{siteOrders.length > 1 ? 's' : ''}</p>
+              </div>
+              <p className="text-sm font-bold text-[#c9a84c]">{siteRevenue.toLocaleString('fr-FR')} F</p>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-blue-50 rounded-xl">
+              <div>
+                <p className="text-sm font-medium text-gray-800">Manuelles</p>
+                <p className="text-xs text-gray-400">{manualOrders.length} commande{manualOrders.length > 1 ? 's' : ''}</p>
+              </div>
+              <p className="text-sm font-bold text-blue-600">{manualRevenue.toLocaleString('fr-FR')} F</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Dernières commandes */}
-      <div className="bg-white rounded-2xl border border-[#f0e6d3] p-6">
-        <h3 className="font-semibold text-gray-800 mb-4">Dernières commandes</h3>
+      {/* === LIGNE 4 : Stats par canal de paiement === */}
+      <div className="bg-white rounded-2xl border border-[#f0e6d3] p-5 mb-6">
+        <h3 className="font-semibold text-gray-800 text-sm mb-4">Paiements par canal</h3>
+        {sortedChannels.length === 0 ? (
+          <p className="text-sm text-gray-400">Aucune donnée</p>
+        ) : (
+          <div className="space-y-3">
+            {sortedChannels.map(([method, data]) => {
+              const pct = Math.round((data.revenue / maxChannelRevenue) * 100);
+              const barColor = channelColors[method] || 'bg-gray-400';
+              return (
+                <div key={method}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2.5 h-2.5 rounded-full ${barColor}`} />
+                      <span className="text-sm font-medium text-gray-700">{method}</span>
+                      <span className="text-xs text-gray-400">({data.count})</span>
+                    </div>
+                    <span className="text-sm font-bold text-gray-800">{data.revenue.toLocaleString('fr-FR')} F</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2">
+                    <div className={`${barColor} h-2 rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* === LIGNE 5 : Dernières commandes === */}
+      <div className="bg-white rounded-2xl border border-[#f0e6d3] p-5">
+        <h3 className="font-semibold text-gray-800 text-sm mb-4">Dernières commandes</h3>
         {orders.length === 0 ? (
           <p className="text-gray-400 text-sm">Aucune commande pour le moment</p>
         ) : (
-          <div className="space-y-3">
-            {orders.slice(0, 5).map((order) => (
-              <div key={order.id} className="flex items-center justify-between p-3 bg-[#fafafa] rounded-xl">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{order.ref}</p>
-                  <p className="text-xs text-gray-400">{order.first_name || order.firstName} {order.last_name || order.lastName}</p>
+          <div className="space-y-2">
+            {orders.slice(0, 8).map((order) => {
+              const name = `${order.first_name || order.firstName || ''} ${order.last_name || order.lastName || ''}`.trim();
+              const amount = order.totalAmount || order.total_amount || 0;
+              const method = order.payment_method || order.paymentMethod;
+              const isManual = order.source === 'manual';
+              return (
+                <div key={order.id} className="flex items-center gap-3 p-3 bg-[#fafafa] rounded-xl">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-mono font-medium text-gray-800">{order.ref}</p>
+                      <StatusBadge status={order.status} />
+                      {isManual && <span className="text-[9px] bg-blue-50 text-blue-600 font-semibold px-1.5 py-0.5 rounded-full">M</span>}
+                    </div>
+                    <p className="text-xs text-gray-400">{name} {method ? `• ${method}` : ''}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-[#c9a84c]">{amount.toLocaleString('fr-FR')} F</p>
+                    {(order.remaining || 0) > 0 && <p className="text-[10px] text-red-500">Reste {(order.remaining || 0).toLocaleString('fr-FR')} F</p>}
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm font-bold text-[#c9a84c]">{(order.totalAmount || order.total_amount || 0).toLocaleString('fr-FR')} F</p>
-                  <StatusBadge status={order.status} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
