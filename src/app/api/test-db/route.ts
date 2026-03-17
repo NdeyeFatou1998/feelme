@@ -1,52 +1,55 @@
 /**
- * Route de test pour diagnostiquer la connexion DB
+ * ============================================
+ * FEEL ME - Route de diagnostic DB
+ * GET /api/test-db
+ * Teste la connexion PostgreSQL et affiche
+ * quelles variables d'environnement sont définies.
+ * ============================================
  */
 
 import { NextResponse } from 'next/server';
 import { sequelize } from '@/lib/db';
 
 export async function GET() {
+  /* --- Inventaire des variables DB disponibles --- */
+  const envStatus = {
+    DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'NOT_SET',
+    DATABASE_POSTGRES_URL: process.env.DATABASE_POSTGRES_URL ? 'SET' : 'NOT_SET',
+    POSTGRES_URL: process.env.POSTGRES_URL ? 'SET' : 'NOT_SET',
+    DATABASE_POSTGRES_PRISMA_URL: process.env.DATABASE_POSTGRES_PRISMA_URL ? 'SET' : 'NOT_SET',
+    DATABASE_POSTGRES_URL_NO_SSL: process.env.DATABASE_POSTGRES_URL_NO_SSL ? 'SET' : 'NOT_SET',
+    DATABASE_PGHOST: process.env.DATABASE_PGHOST ? 'SET' : 'NOT_SET',
+    DATABASE_POSTGRES_USER: process.env.DATABASE_POSTGRES_USER ? 'SET' : 'NOT_SET',
+    DATABASE_POSTGRES_PASSWORD: process.env.DATABASE_POSTGRES_PASSWORD ? 'SET' : 'NOT_SET',
+    DATABASE_POSTGRES_DATABASE: process.env.DATABASE_POSTGRES_DATABASE ? 'SET' : 'NOT_SET',
+    NODE_ENV: process.env.NODE_ENV || 'NOT_SET',
+  };
+
   try {
-    // Test de connexion
+    /* --- Tester la connexion --- */
     await sequelize.authenticate();
-    
-    // Récupérer les variables d'environnement (masquées)
-    const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || 'NOT_SET';
-    const dbUrlMasked = dbUrl.substring(0, 20) + '...' + dbUrl.substring(dbUrl.length - 10);
-    
+
+    /* --- Masquer l'URL pour la sécurité --- */
+    const dbUrl = process.env.DATABASE_URL || process.env.DATABASE_POSTGRES_URL || 'NOT_SET';
+    const dbUrlMasked = dbUrl.length > 30
+      ? dbUrl.substring(0, 20) + '...' + dbUrl.substring(dbUrl.length - 10)
+      : 'URL trop courte ou vide';
+
     return NextResponse.json({
       success: true,
-      message: 'Connexion DB réussie',
+      message: 'Connexion DB réussie !',
       dbUrl: dbUrlMasked,
-      env: {
-        DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'NOT_SET',
-        POSTGRES_URL: process.env.POSTGRES_URL ? 'SET' : 'NOT_SET',
-        DATABASE_POSTGRES_USER: process.env.DATABASE_POSTGRES_USER ? 'SET' : 'NOT_SET',
-        DATABASE_POSTGRES_PASSWORD: process.env.DATABASE_POSTGRES_PASSWORD ? 'SET' : 'NOT_SET',
-        DATABASE_PGHOST: process.env.DATABASE_PGHOST ? 'SET' : 'NOT_SET',
-        DATABASE_PORT: process.env.DATABASE_PORT ? 'SET' : 'NOT_SET',
-        DATABASE_NAME: process.env.DATABASE_NAME ? 'SET' : 'NOT_SET',
-        NODE_ENV: process.env.NODE_ENV,
-      }
+      env: envStatus,
     });
   } catch (error) {
+    /* --- En cas d'erreur, on retourne le détail SANS status 500 --- */
+    /* --- pour que Vercel ne masque pas la réponse JSON --- */
     const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
-    const errorStack = error instanceof Error ? error.stack : '';
-    
+
     return NextResponse.json({
       success: false,
       message: errorMessage,
-      stack: errorStack,
-      env: {
-        DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'NOT_SET',
-        POSTGRES_URL: process.env.POSTGRES_URL ? 'SET' : 'NOT_SET',
-        DATABASE_POSTGRES_USER: process.env.DATABASE_POSTGRES_USER ? 'SET' : 'NOT_SET',
-        DATABASE_POSTGRES_PASSWORD: process.env.DATABASE_POSTGRES_PASSWORD ? 'SET' : 'NOT_SET',
-        DATABASE_PGHOST: process.env.DATABASE_PGHOST ? 'SET' : 'NOT_SET',
-        DATABASE_PORT: process.env.DATABASE_PORT ? 'SET' : 'NOT_SET',
-        DATABASE_NAME: process.env.DATABASE_NAME ? 'SET' : 'NOT_SET',
-        NODE_ENV: process.env.NODE_ENV,
-      }
-    }, { status: 500 });
+      env: envStatus,
+    });
   }
 }

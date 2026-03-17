@@ -4,6 +4,10 @@
  * Initialise la base de données avec les données
  * par défaut (admin, catégories, produits, packs)
  * GET /api/seed
+ * 
+ * NOTE : retourne toujours HTTP 200 pour que Vercel
+ * ne masque pas le JSON de réponse en cas d'erreur.
+ * Le champ "success" indique le vrai statut.
  * ============================================
  */
 
@@ -20,10 +24,10 @@ export async function GET() {
   } catch (error) {
     console.error('[API/SEED] Erreur:', error);
     const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
-    const errorStack = error instanceof Error ? error.stack : '';
-    return NextResponse.json(
-      { success: false, message: `Erreur: ${errorMessage}`, stack: errorStack },
-      { status: 500 }
-    );
+    /* --- Pas de status 500, sinon Vercel masque le JSON --- */
+    return NextResponse.json({
+      success: false,
+      message: `Erreur: ${errorMessage}`,
+    });
   }
 }

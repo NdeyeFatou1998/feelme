@@ -3,39 +3,22 @@
  * FEEL ME - Script de Seed (initialisation DB)
  * Crée : admin par défaut, catégorie Musc,
  * produits initiaux (3ml, 6ml), pack 3x3ml
- * Les images sont lues depuis assets/images
- * et stockées en base64 dans la DB
+ * 
+ * IMPORTANT : Sur Vercel serverless, le filesystem
+ * n'est pas accessible. Les images sont référencées
+ * via leur chemin public (/images/xxx.jpeg).
  * ============================================
  */
 
 import bcrypt from 'bcryptjs';
-import fs from 'fs';
-import path from 'path';
 import { syncDatabase, Admin, Category, Product, Pack } from './models';
 
 /**
- * Convertit un fichier image en data URI base64
- * pour stockage direct en DB (pas de serveur de fichiers)
+ * Retourne le chemin public de l'image.
+ * Sur Vercel serverless, on ne peut PAS lire le filesystem (fs),
+ * donc on utilise directement les URLs publiques /images/xxx.
  */
-function imageToBase64(filename: string): string {
-  /* --- Chercher l'image dans plusieurs emplacements possibles --- */
-  const possiblePaths = [
-    path.join(process.cwd(), 'assets', 'images', filename),
-    path.join(process.cwd(), '..', 'assets', 'images', filename),
-    path.join(process.cwd(), 'public', 'images', filename),
-  ];
-  
-  for (const imagePath of possiblePaths) {
-    if (fs.existsSync(imagePath)) {
-      const buffer = fs.readFileSync(imagePath);
-      const base64 = buffer.toString('base64');
-      console.log(`[SEED] Image trouvée: ${imagePath}`);
-      return `data:image/jpeg;base64,${base64}`;
-    }
-  }
-  
-  /* --- Fallback : utiliser l'URL publique si le fichier n'est pas accessible --- */
-  console.warn(`[SEED] Image non trouvée en local, utilisation de l'URL publique: ${filename}`);
+function getImagePath(filename: string): string {
   return `/images/${filename}`;
 }
 
@@ -65,7 +48,7 @@ export async function seed() {
         name: 'Musc',
         slug: 'musc',
         description: 'Collection de muscs naturels et authentiques. Les senteurs du paradis.',
-        image: imageToBase64('feelmebanniere.jpeg'),
+        image: getImagePath('feelmebanniere.jpeg'),
       });
       console.log('[SEED] Catégorie Musc créée.');
     }
@@ -83,7 +66,7 @@ export async function seed() {
         description: 'Le Musc Tahara Original Feel Me en format 3ml. Un parfum délicat et envoûtant, idéal pour une utilisation quotidienne. Notes blanches et florales, pureté absolue.',
         price: 2000,
         promoPrice: null as number | null,
-        image: imageToBase64('feelme3ml.jpeg'),
+        image: getImagePath('feelme3ml.jpeg'),
         categoryId: catId,
         volume: '3ml',
         stock: 100,
@@ -95,7 +78,7 @@ export async function seed() {
         description: 'Le Musc Tahara Original Feel Me en format 6ml. La taille parfaite pour ceux qui veulent profiter plus longtemps de cette fragrance divine. Intense et longue tenue.',
         price: 3500,
         promoPrice: null as number | null,
-        image: imageToBase64('feelme6ml.jpeg'),
+        image: getImagePath('feelme6ml.jpeg'),
         categoryId: catId,
         volume: '6ml',
         stock: 100,
@@ -123,7 +106,7 @@ export async function seed() {
           description: 'Offre spéciale : 3 Musc Tahara 3ml au prix exceptionnel de 3500 FCFA au lieu de 6000 FCFA. Idéal pour offrir ou pour constituer votre stock personnel.',
           price: 6000,
           promoPrice: 3500,
-          image: imageToBase64('feelmepack3x3ml.jpeg'),
+          image: getImagePath('feelmepack3x3ml.jpeg'),
           items: [
             { productId: prod3mlId, productName: 'Musc Tahara 3ml', quantity: 3 },
           ],
