@@ -3,12 +3,16 @@
  * FEEL ME - Service d'envoi d'emails
  * Utilise Nodemailer avec SMTP Gmail
  * Fonctions : envoi notification admin,
- * envoi confirmation + facture client
+ * envoi confirmation + facture PDF client
+ * 
+ * La facture PDF est générée via PDFKit
+ * et jointe en pièce jointe aux emails.
  * ============================================
  */
 
 import nodemailer from 'nodemailer';
 import { OrderAttributes, OrderItem } from './models/Order';
+import { generateInvoicePDF } from './invoice';
 
 /* --- Configuration du transporteur SMTP --- */
 const transporter = nodemailer.createTransport({
@@ -90,27 +94,51 @@ function generateInvoiceHTML(order: OrderAttributes): string {
 }
 
 /**
- * Envoie un email de confirmation + facture au client
+ * Envoie un email de confirmation + facture PDF au client.
+ * Le PDF est généré via PDFKit et joint en pièce jointe.
  */
 export async function sendOrderConfirmationEmail(order: OrderAttributes): Promise<void> {
   try {
     const invoiceHTML = generateInvoiceHTML(order);
-    
-    await transporter.sendMail({
+
+    /* --- Générer le PDF de la facture --- */
+    let pdfBuffer: Buffer | null = null;
+    try {
+      pdfBuffer = await generateInvoicePDF(order);
+      console.log(`[EMAIL] PDF facture généré pour ${order.ref} (${pdfBuffer.length} octets)`);
+    } catch (pdfError) {
+      console.error('[EMAIL] Erreur génération PDF, envoi sans pièce jointe:', pdfError);
+    }
+
+    /* --- Construire le mail avec pièce jointe PDF si disponible --- */
+    const mailOptions: nodemailer.SendMailOptions = {
       from: process.env.SMTP_FROM || 'Feel Me <softechiris@gmail.com>',
       to: order.email,
-      subject: `✨ Feel Me - Confirmation de commande ${order.ref}`,
+      subject: `Feel Me - Confirmation de commande ${order.ref}`,
       html: `
         <div style="font-family:'Helvetica Neue',Arial,sans-serif;">
           <p style="font-size:16px;color:#333;">Bonjour <strong>${order.firstName}</strong>,</p>
-          <p style="font-size:14px;color:#555;">Merci pour votre commande ! Voici votre facture :</p>
+          <p style="font-size:14px;color:#555;">Merci pour votre commande ! Votre facture est en pièce jointe.</p>
           ${invoiceHTML}
           <p style="font-size:14px;color:#555;margin-top:20px;">Nous vous contacterons très bientôt pour la livraison.</p>
-          <p style="font-size:14px;color:#c9a84c;font-style:italic;">L'équipe Feel Me 🌸</p>
+          <p style="font-size:14px;color:#c9a84c;font-style:italic;">L'équipe Feel Me</p>
         </div>
       `,
-    });
-    console.log(`[EMAIL] Confirmation envoyée à ${order.email}`);
+    };
+
+    /* --- Joindre le PDF si la génération a réussi --- */
+    if (pdfBuffer) {
+      mailOptions.attachments = [
+        {
+          filename: `Facture-${order.ref}.pdf`,
+          content: pdfBuffer,
+          contentType: 'application/pdf',
+        },
+      ];
+    }
+
+    await transporter.sendMail(mailOptions);
+    console.log(`[EMAIL] Confirmation + facture PDF envoyée à ${order.email}`);
   } catch (error) {
     console.error('[EMAIL] Erreur envoi confirmation:', error);
   }
@@ -118,29 +146,53 @@ export async function sendOrderConfirmationEmail(order: OrderAttributes): Promis
 
 /**
  * Envoie une notification de nouvelle commande à l'admin
+ * avec la facture PDF en pièce jointe.
  */
 export async function sendAdminNotificationEmail(order: OrderAttributes): Promise<void> {
   try {
     const invoiceHTML = generateInvoiceHTML(order);
-    
-    await transporter.sendMail({
+    const appUrl = process.env.APP_URL || 'https://feel-me.store';
+
+    /* --- Générer le PDF de la facture --- */
+    let pdfBuffer: Buffer | null = null;
+    try {
+      pdfBuffer = await generateInvoicePDF(order);
+    } catch (pdfError) {
+      console.error('[EMAIL] Erreur génération PDF admin:', pdfError);
+    }
+
+    /* --- Construire le mail admin --- */
+    const mailOptions: nodemailer.SendMailOptions = {
       from: process.env.SMTP_FROM || 'Feel Me <softechiris@gmail.com>',
       to: process.env.SMTP_USER || 'softechiris@gmail.com',
-      subject: `🛒 Nouvelle commande ${order.ref} - ${order.totalAmount.toLocaleString('fr-FR')} FCFA`,
+      subject: `Nouvelle commande ${order.ref} - ${order.totalAmount.toLocaleString('fr-FR')} FCFA`,
       html: `
         <div style="font-family:'Helvetica Neue',Arial,sans-serif;">
-          <h2 style="color:#c9a84c;">🛒 Nouvelle commande reçue !</h2>
+          <h2 style="color:#c9a84c;">Nouvelle commande reçue !</h2>
           <p style="font-size:14px;color:#555;">
             <strong>${order.firstName} ${order.lastName}</strong> vient de passer une commande.
           </p>
           ${invoiceHTML}
           <p style="font-size:14px;color:#555;margin-top:20px;">
-            Connectez-vous au <a href="${process.env.APP_URL}/admin" style="color:#c9a84c;">Dashboard Admin</a> pour gérer cette commande.
+            Connectez-vous au <a href="${appUrl}/admin" style="color:#c9a84c;">Dashboard Admin</a> pour gérer cette commande.
           </p>
         </div>
       `,
-    });
-    console.log(`[EMAIL] Notification admin envoyée.`);
+    };
+
+    /* --- Joindre le PDF si disponible --- */
+    if (pdfBuffer) {
+      mailOptions.attachments = [
+        {
+          filename: `Facture-${order.ref}.pdf`,
+          content: pdfBuffer,
+          contentType: 'application/pdf',
+        },
+      ];
+    }
+
+    await transporter.sendMail(mailOptions);
+    console.log(`[EMAIL] Notification admin + facture PDF envoyée.`);
   } catch (error) {
     console.error('[EMAIL] Erreur envoi notification admin:', error);
   }

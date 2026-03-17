@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
     ],
   },
   /* --- Packages Node.js natifs exclus du bundling (nécessaire pour Sequelize/pg) --- */
-  serverExternalPackages: ['sequelize', 'pg', 'pg-hstore'],
+  serverExternalPackages: ['sequelize', 'pg', 'pg-hstore', 'pdfkit'],
   /* --- Augmenter la taille max des payloads API (images base64) --- */
   experimental: {
     serverActions: {

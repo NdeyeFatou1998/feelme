@@ -17,7 +17,7 @@ import { useRouter } from 'next/navigation';
 import {
   Package, Tag, Layers, ShoppingCart, LogOut, Plus, Trash2, Edit3,
   Save, X, Image as ImageIcon, Loader2, BarChart3, Eye, EyeOff,
-  ChevronDown, ChevronUp, Menu, XIcon, Users, TrendingUp
+  ChevronDown, ChevronUp, Menu, XIcon, Users, TrendingUp, FileDown
 } from 'lucide-react';
 import ResellerPacksTab from './reseller-packs-tab';
 
@@ -935,6 +935,26 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
 }) {
   const [expandedOrder, setExpandedOrder] = useState<number | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState<number | null>(null);
+  const [downloadingInvoice, setDownloadingInvoice] = useState<number | null>(null);
+
+  /* --- Télécharger la facture PDF d'une commande --- */
+  const handleDownloadInvoice = async (orderId: number, orderRef: string) => {
+    setDownloadingInvoice(orderId);
+    try {
+      const res = await authFetch(`/api/orders/${orderId}/invoice`);
+      if (!res.ok) throw new Error('Erreur téléchargement facture');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Facture-${orderRef}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) { console.error('Erreur téléchargement facture:', error); }
+    finally { setDownloadingInvoice(null); }
+  };
 
   /* --- Changer le statut d'une commande --- */
   const handleStatusChange = async (orderId: number, newStatus: string) => {
@@ -1017,8 +1037,8 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
                         </div>
                       </div>
 
-                      {/* Changement de statut */}
-                      <div className="flex items-center gap-3">
+                      {/* Changement de statut + Téléchargement facture */}
+                      <div className="flex items-center gap-3 flex-wrap">
                         <label className="text-xs text-gray-400">Statut :</label>
                         <select
                           value={order.status}
@@ -1033,6 +1053,18 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
                           <option value="cancelled">Annulée</option>
                         </select>
                         {updatingStatus === order.id && <Loader2 className="w-4 h-4 animate-spin text-[#c9a84c]" />}
+
+                        {/* --- Bouton télécharger facture PDF --- */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDownloadInvoice(order.id, order.ref); }}
+                          disabled={downloadingInvoice === order.id}
+                          className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] text-white text-xs font-semibold rounded-lg hover:shadow-md transition-all disabled:opacity-50"
+                        >
+                          {downloadingInvoice === order.id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <FileDown className="w-3.5 h-3.5" />}
+                          Facture PDF
+                        </button>
                       </div>
                     </div>
                   )}
