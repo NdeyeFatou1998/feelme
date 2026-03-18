@@ -240,3 +240,49 @@ export async function sendAdminNotificationEmail(order: OrderAttributes): Promis
     console.error('[EMAIL] Erreur envoi notification admin:', error);
   }
 }
+
+/**
+ * Envoie un email au nouvel admin avec ses identifiants de connexion.
+ * Le mot de passe est généré aléatoirement et envoyé en clair.
+ * L'admin devra le changer après sa première connexion.
+ */
+export async function sendNewAdminEmail(email: string, password: string): Promise<void> {
+  try {
+    const co = await loadCompanyInfo();
+    const appUrl = process.env.APP_URL || 'https://feel-me.store';
+
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || `${co.companyName} <${co.companyEmail}>`,
+      to: email,
+      subject: `${co.companyName} - Votre compte administrateur`,
+      html: `
+        <div style="max-width:560px;margin:0 auto;font-family:'Helvetica Neue',Arial,sans-serif;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #f0ead6;">
+          <div style="background:linear-gradient(135deg,#f7f0dd,#fdf8ec);padding:28px 30px;text-align:center;border-bottom:2px solid #e8d48b;">
+            <h1 style="margin:0;font-size:26px;color:#c9a84c;font-style:italic;">${co.companyName}</h1>
+            <p style="margin:6px 0 0;font-size:11px;color:#b89a3e;letter-spacing:3px;">ADMINISTRATION</p>
+          </div>
+          <div style="padding:30px;">
+            <h2 style="color:#333;font-size:18px;margin:0 0 12px;">Bienvenue dans l'espace admin !</h2>
+            <p style="font-size:14px;color:#555;margin:0 0 20px;">Un compte administrateur a ete cree pour vous. Voici vos identifiants de connexion :</p>
+            <div style="background:#fafaf5;border-radius:10px;padding:20px;margin-bottom:20px;">
+              <p style="margin:0 0 8px;font-size:14px;color:#333;"><strong>Email :</strong> ${email}</p>
+              <p style="margin:0;font-size:14px;color:#333;"><strong>Mot de passe :</strong> <code style="background:#fff3e0;padding:3px 8px;border-radius:4px;font-size:15px;font-weight:bold;color:#c9a84c;">${password}</code></p>
+            </div>
+            <div style="background:#fff3e0;border-radius:10px;padding:14px;margin-bottom:20px;text-align:center;">
+              <p style="margin:0;font-size:13px;color:#e65100;font-weight:600;">Changez votre mot de passe des votre premiere connexion !</p>
+            </div>
+            <div style="text-align:center;">
+              <a href="${appUrl}/admin/login" style="display:inline-block;background:linear-gradient(135deg,#c9a84c,#e8d48b);color:#fff;text-decoration:none;padding:12px 30px;border-radius:10px;font-size:14px;font-weight:600;">Se connecter</a>
+            </div>
+          </div>
+          <div style="background:#faf6eb;padding:16px 30px;text-align:center;border-top:1px solid #f0ead6;">
+            <p style="margin:0;font-size:11px;color:#999;">${co.companyName} | ${co.companyEmail} | ${co.companyPhone}</p>
+          </div>
+        </div>
+      `,
+    });
+    console.log(`[EMAIL] Mail identifiants admin envoye a ${email}`);
+  } catch (error) {
+    console.error('[EMAIL] Erreur envoi mail nouvel admin:', error);
+  }
+}

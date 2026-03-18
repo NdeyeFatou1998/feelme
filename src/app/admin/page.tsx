@@ -1423,10 +1423,7 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
 }
 
 /* ===============================================================
-   ONGLET : PARAMÈTRES ENTREPRISE
-   Permet à l'admin de configurer : nom, email, téléphone,
-   adresse et site web de l'entreprise.
-   Ces infos apparaissent sur les factures PDF et emails.
+   ONGLET : PARAMÈTRES (entreprise + gestion admins + mot de passe)
    =============================================================== */
 function SettingsTab({ authFetch }: {
   authFetch: (url: string, options?: RequestInit) => Promise<Response>;
@@ -1435,52 +1432,95 @@ function SettingsTab({ authFetch }: {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [form, setForm] = useState({
-    companyName: '',
-    companyEmail: '',
-    companyPhone: '',
-    companyAddress: '',
-    companyWebsite: '',
+    companyName: '', companyEmail: '', companyPhone: '', companyAddress: '', companyWebsite: '',
   });
 
-  /* --- Charger les paramètres actuels --- */
-  useEffect(() => {
-    fetch('/api/settings')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.settings) {
-          const s = data.settings;
-          setForm({
-            companyName: s.company_name || s.companyName || '',
-            companyEmail: s.company_email || s.companyEmail || '',
-            companyPhone: s.company_phone || s.companyPhone || '',
-            companyAddress: s.company_address || s.companyAddress || '',
-            companyWebsite: s.company_website || s.companyWebsite || '',
-          });
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+  /* --- État gestion admins --- */
+  const [admins, setAdmins] = useState<{ id: number; email: string; createdAt: string }[]>([]);
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [creatingAdmin, setCreatingAdmin] = useState(false);
+  const [adminMsg, setAdminMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
-  /* --- Sauvegarder les paramètres --- */
+  /* --- État changement mot de passe --- */
+  const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [changingPw, setChangingPw] = useState(false);
+  const [pwMsg, setPwMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  /* --- Charger paramètres + admins --- */
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/settings').then(r => r.json()),
+      authFetch('/api/admins').then(r => r.json()),
+    ]).then(([settingsData, adminsData]) => {
+      if (settingsData.success && settingsData.settings) {
+        const s = settingsData.settings;
+        setForm({
+          companyName: s.company_name || s.companyName || '',
+          companyEmail: s.company_email || s.companyEmail || '',
+          companyPhone: s.company_phone || s.companyPhone || '',
+          companyAddress: s.company_address || s.companyAddress || '',
+          companyWebsite: s.company_website || s.companyWebsite || '',
+        });
+      }
+      if (adminsData.success && adminsData.admins) {
+        setAdmins(adminsData.admins);
+      }
+    }).catch(console.error).finally(() => setLoading(false));
+  }, [authFetch]);
+
+  /* --- Sauvegarder paramètres entreprise --- */
   const handleSave = async () => {
-    setSaving(true);
-    setSaved(false);
+    setSaving(true); setSaved(false);
     try {
-      const res = await authFetch('/api/settings', {
+      const res = await authFetch('/api/settings', { method: 'PUT', body: JSON.stringify(form) });
+      const data = await res.json();
+      if (data.success) { setSaved(true); setTimeout(() => setSaved(false), 3000); }
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
+  /* --- Créer un nouvel admin --- */
+  const handleCreateAdmin = async () => {
+    if (!newAdminEmail) return;
+    setCreatingAdmin(true); setAdminMsg(null);
+    try {
+      const res = await authFetch('/api/admins', { method: 'POST', body: JSON.stringify({ email: newAdminEmail }) });
+      const data = await res.json();
+      if (data.success) {
+        setAdminMsg({ type: 'ok', text: `Admin cree ! Mail envoye a ${newAdminEmail}` });
+        setNewAdminEmail('');
+        /* Recharger la liste */
+        const listRes = await authFetch('/api/admins');
+        const listData = await listRes.json();
+        if (listData.admins) setAdmins(listData.admins);
+      } else {
+        setAdminMsg({ type: 'err', text: data.error || 'Erreur' });
+      }
+    } catch (e) { setAdminMsg({ type: 'err', text: 'Erreur reseau' }); }
+    finally { setCreatingAdmin(false); setTimeout(() => setAdminMsg(null), 5000); }
+  };
+
+  /* --- Changer son mot de passe --- */
+  const handleChangePassword = async () => {
+    setPwMsg(null);
+    if (!pwForm.currentPassword || !pwForm.newPassword) { setPwMsg({ type: 'err', text: 'Remplissez tous les champs' }); return; }
+    if (pwForm.newPassword.length < 6) { setPwMsg({ type: 'err', text: 'Le nouveau mot de passe doit faire au moins 6 caracteres' }); return; }
+    if (pwForm.newPassword !== pwForm.confirmPassword) { setPwMsg({ type: 'err', text: 'Les mots de passe ne correspondent pas' }); return; }
+    setChangingPw(true);
+    try {
+      const res = await authFetch('/api/admins/password', {
         method: 'PUT',
-        body: JSON.stringify(form),
+        body: JSON.stringify({ currentPassword: pwForm.currentPassword, newPassword: pwForm.newPassword }),
       });
       const data = await res.json();
       if (data.success) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
+        setPwMsg({ type: 'ok', text: 'Mot de passe change avec succes !' });
+        setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      } else {
+        setPwMsg({ type: 'err', text: data.error || 'Erreur' });
       }
-    } catch (error) {
-      console.error('Erreur sauvegarde paramètres:', error);
-    } finally {
-      setSaving(false);
-    }
+    } catch (e) { setPwMsg({ type: 'err', text: 'Erreur reseau' }); }
+    finally { setChangingPw(false); setTimeout(() => setPwMsg(null), 5000); }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -1488,99 +1528,134 @@ function SettingsTab({ authFetch }: {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 text-[#c9a84c] animate-spin" />
-      </div>
-    );
+    return (<div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 text-[#c9a84c] animate-spin" /></div>);
   }
 
+  const inputCls = "w-full px-4 py-3 bg-[#fafafa] border border-[#f0e6d3] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 focus:border-[#c9a84c] transition-all";
+
   return (
-    <div>
-      <h2 className="font-[var(--font-playfair)] text-2xl font-bold text-gray-800 mb-6">Paramètres entreprise</h2>
-      <p className="text-sm text-gray-400 mb-6">
-        Ces informations apparaissent sur les factures PDF et dans les emails envoyés aux clients.
-      </p>
+    <div className="space-y-8">
+      {/* ==========================================
+          SECTION 1 : PARAMÈTRES ENTREPRISE
+          ========================================== */}
+      <div>
+        <h2 className="font-[var(--font-playfair)] text-2xl font-bold text-gray-800 mb-2">Parametres</h2>
+        <p className="text-sm text-gray-400 mb-6">Infos entreprise, gestion des admins, mot de passe.</p>
 
-      <div className="bg-white rounded-2xl border border-[#f0e6d3] p-6 sm:p-8 space-y-5 max-w-2xl">
-        {/* Nom de l'entreprise */}
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1.5">Nom de l&apos;entreprise</label>
-          <input
-            type="text"
-            name="companyName"
-            value={form.companyName}
-            onChange={handleChange}
-            placeholder="Feel Me"
-            className="w-full px-4 py-3 bg-[#fafafa] border border-[#f0e6d3] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 focus:border-[#c9a84c] transition-all"
-          />
+        <div className="bg-white rounded-2xl border border-[#f0e6d3] p-6 sm:p-8 space-y-5 max-w-2xl">
+          <h3 className="text-lg font-bold text-gray-800">Infos entreprise</h3>
+          <p className="text-xs text-gray-400 -mt-3">Apparaissent sur les factures PDF et emails.</p>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1.5">Nom de l&apos;entreprise</label>
+            <input type="text" name="companyName" value={form.companyName} onChange={handleChange} placeholder="Feel Me" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1.5">Email entreprise</label>
+            <input type="email" name="companyEmail" value={form.companyEmail} onChange={handleChange} placeholder="contact@feel-me.store" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1.5">Telephone</label>
+            <input type="tel" name="companyPhone" value={form.companyPhone} onChange={handleChange} placeholder="+221 77 000 00 00" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1.5">Adresse</label>
+            <textarea name="companyAddress" value={form.companyAddress} onChange={handleChange} placeholder="Dakar, Senegal" rows={2} className={inputCls + " resize-none"} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1.5">Site web</label>
+            <input type="text" name="companyWebsite" value={form.companyWebsite} onChange={handleChange} placeholder="www.feel-me.store" className={inputCls} />
+          </div>
+
+          <div className="flex items-center gap-3 pt-2">
+            <button onClick={handleSave} disabled={saving}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] text-white font-semibold rounded-xl hover:shadow-md transition-all disabled:opacity-50">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Enregistrer
+            </button>
+            {saved && <span className="text-sm text-green-600 font-medium">Sauvegarde !</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* ==========================================
+          SECTION 2 : GESTION DES ADMINS
+          ========================================== */}
+      <div className="bg-white rounded-2xl border border-[#f0e6d3] p-6 sm:p-8 max-w-2xl">
+        <h3 className="text-lg font-bold text-gray-800 mb-1">Administrateurs</h3>
+        <p className="text-xs text-gray-400 mb-5">Creez un compte admin. Un mail avec le mot de passe genere sera envoye automatiquement.</p>
+
+        {/* Liste des admins existants */}
+        <div className="space-y-2 mb-5">
+          {admins.map((a) => (
+            <div key={a.id} className="flex items-center justify-between p-3 bg-[#fafafa] rounded-xl">
+              <div>
+                <p className="text-sm font-medium text-gray-800">{a.email}</p>
+                <p className="text-xs text-gray-400">Cree le {new Date(a.createdAt).toLocaleDateString('fr-FR')}</p>
+              </div>
+            </div>
+          ))}
+          {admins.length === 0 && <p className="text-sm text-gray-400">Aucun admin</p>}
         </div>
 
-        {/* Email entreprise */}
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1.5">Email entreprise</label>
-          <input
-            type="email"
-            name="companyEmail"
-            value={form.companyEmail}
-            onChange={handleChange}
-            placeholder="contact@feel-me.store"
-            className="w-full px-4 py-3 bg-[#fafafa] border border-[#f0e6d3] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 focus:border-[#c9a84c] transition-all"
-          />
-        </div>
-
-        {/* Téléphone */}
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1.5">Téléphone</label>
-          <input
-            type="tel"
-            name="companyPhone"
-            value={form.companyPhone}
-            onChange={handleChange}
-            placeholder="+221 77 000 00 00"
-            className="w-full px-4 py-3 bg-[#fafafa] border border-[#f0e6d3] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 focus:border-[#c9a84c] transition-all"
-          />
-        </div>
-
-        {/* Adresse */}
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1.5">Adresse</label>
-          <textarea
-            name="companyAddress"
-            value={form.companyAddress}
-            onChange={handleChange}
-            placeholder="Dakar, Sénégal"
-            rows={2}
-            className="w-full px-4 py-3 bg-[#fafafa] border border-[#f0e6d3] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 focus:border-[#c9a84c] transition-all resize-none"
-          />
-        </div>
-
-        {/* Site web */}
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1.5">Site web</label>
-          <input
-            type="text"
-            name="companyWebsite"
-            value={form.companyWebsite}
-            onChange={handleChange}
-            placeholder="www.feel-me.store"
-            className="w-full px-4 py-3 bg-[#fafafa] border border-[#f0e6d3] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 focus:border-[#c9a84c] transition-all"
-          />
-        </div>
-
-        {/* Bouton sauvegarder */}
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] text-white font-semibold rounded-xl hover:shadow-md transition-all disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Enregistrer
+        {/* Formulaire création admin */}
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Email du nouvel admin</label>
+            <input type="email" value={newAdminEmail} onChange={(e) => setNewAdminEmail(e.target.value)}
+              placeholder="admin@example.com" className={inputCls}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateAdmin(); }} />
+          </div>
+          <button onClick={handleCreateAdmin} disabled={creatingAdmin || !newAdminEmail}
+            className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] text-white text-sm font-semibold rounded-xl hover:shadow-md transition-all disabled:opacity-50">
+            {creatingAdmin ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            Creer
           </button>
-          {saved && (
-            <span className="text-sm text-green-600 font-medium">Paramètres sauvegardés !</span>
-          )}
+        </div>
+        {adminMsg && (
+          <p className={`text-sm mt-3 font-medium ${adminMsg.type === 'ok' ? 'text-green-600' : 'text-red-500'}`}>{adminMsg.text}</p>
+        )}
+      </div>
+
+      {/* ==========================================
+          SECTION 3 : CHANGER MON MOT DE PASSE
+          ========================================== */}
+      <div className="bg-white rounded-2xl border border-[#f0e6d3] p-6 sm:p-8 max-w-2xl">
+        <h3 className="text-lg font-bold text-gray-800 mb-1">Changer mon mot de passe</h3>
+        <p className="text-xs text-gray-400 mb-5">Entrez votre ancien mot de passe puis le nouveau.</p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Mot de passe actuel</label>
+            <input type="password" value={pwForm.currentPassword}
+              onChange={(e) => setPwForm({ ...pwForm, currentPassword: e.target.value })}
+              placeholder="Votre mot de passe actuel" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Nouveau mot de passe</label>
+            <input type="password" value={pwForm.newPassword}
+              onChange={(e) => setPwForm({ ...pwForm, newPassword: e.target.value })}
+              placeholder="Minimum 6 caracteres" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Confirmer le nouveau mot de passe</label>
+            <input type="password" value={pwForm.confirmPassword}
+              onChange={(e) => setPwForm({ ...pwForm, confirmPassword: e.target.value })}
+              placeholder="Retapez le nouveau mot de passe"
+              className={inputCls}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleChangePassword(); }} />
+          </div>
+
+          <div className="flex items-center gap-3 pt-1">
+            <button onClick={handleChangePassword} disabled={changingPw}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] text-white font-semibold rounded-xl hover:shadow-md transition-all disabled:opacity-50">
+              {changingPw ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Changer
+            </button>
+            {pwMsg && (
+              <span className={`text-sm font-medium ${pwMsg.type === 'ok' ? 'text-green-600' : 'text-red-500'}`}>{pwMsg.text}</span>
+            )}
+          </div>
         </div>
       </div>
     </div>
