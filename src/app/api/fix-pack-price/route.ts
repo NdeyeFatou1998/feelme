@@ -35,8 +35,8 @@ export async function GET() {
       promoPrice: null,
       image: '/images/pack1x3et1x6.jpeg',
       items: [
-        { productName: 'Parfum 3ml', quantity: 1 },
-        { productName: 'Parfum 6ml', quantity: 1 },
+        { productId: 0, productName: 'Parfum 3ml au choix', quantity: 1 },
+        { productId: 0, productName: 'Parfum 6ml au choix', quantity: 1 },
       ],
       isActive: true,
     });
