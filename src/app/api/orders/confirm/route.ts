@@ -18,20 +18,31 @@ import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '@/lib/em
 export async function POST(req: NextRequest) {
   try {
     await syncDatabase();
-    const { ref } = await req.json();
+
+    /* --- Lire le body en toute sécurité --- */
+    let ref: string | null = null;
+    try {
+      const body = await req.json();
+      ref = body.ref || null;
+    } catch (parseError) {
+      console.error('[CONFIRM] Erreur parsing body:', parseError);
+    }
 
     if (!ref) {
       return NextResponse.json({ error: 'Référence manquante' }, { status: 400 });
     }
 
+    console.log(`[CONFIRM] Tentative de confirmation pour ref: ${ref}`);
+
     /* --- Retrouver la commande --- */
     const order = await Order.findOne({ where: { ref } });
     if (!order) {
+      console.error(`[CONFIRM] Commande ${ref} introuvable`);
       return NextResponse.json({ success: false, error: 'Commande introuvable' }, { status: 404 });
     }
 
-    const orderData = order.toJSON();
     const currentStatus = (order as any).dataValues.status;
+    console.log(`[CONFIRM] Commande ${ref} trouvée, statut actuel: ${currentStatus}`);
 
     /* --- Si la commande est encore en 'pending', la confirmer --- */
     /* Le client a été redirigé vers success_url = le paiement a réussi côté PayTech */
@@ -42,10 +53,13 @@ export async function POST(req: NextRequest) {
         status: 'paid',
         ...(currentMethod ? {} : { paymentMethod: 'Paiement en ligne' }),
       });
-      console.log(`[CONFIRM] Commande ${ref} confirmée via fallback (canal: ${currentMethod || 'Paiement en ligne'})`);
+      console.log(`[CONFIRM] ✅ Commande ${ref} confirmée → paid (canal: ${currentMethod || 'Paiement en ligne'})`);
+
+      /* Recharger la commande après update pour avoir les bonnes données */
+      await order.reload();
+      const updatedOrder = order.toJSON();
 
       /* --- Envoyer les emails --- */
-      const updatedOrder = order.toJSON();
       try {
         await Promise.all([
           sendOrderConfirmationEmail(updatedOrder),
@@ -53,6 +67,7 @@ export async function POST(req: NextRequest) {
         ]);
         console.log(`[CONFIRM] Emails envoyés pour commande ${ref}`);
       } catch (emailError) {
+        /* Ne pas bloquer la confirmation si l'email échoue */
         console.error(`[CONFIRM] Erreur emails pour ${ref}:`, emailError);
       }
 
@@ -63,8 +78,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    /* --- Commande déjà payée (IPN a fonctionné) --- */
-    if (currentStatus === 'paid') {
+    /* --- Commande déjà payée (IPN a fonctionné avant) --- */
+    if (currentStatus === 'paid' || currentStatus === 'shipped' || currentStatus === 'delivered') {
+      const orderData = order.toJSON();
+      console.log(`[CONFIRM] Commande ${ref} déjà en statut '${currentStatus}', pas de changement`);
       return NextResponse.json({
         success: true,
         message: 'Commande déjà confirmée',
@@ -73,6 +90,8 @@ export async function POST(req: NextRequest) {
     }
 
     /* --- Autre statut (annulée, etc.) --- */
+    const orderData = order.toJSON();
+    console.log(`[CONFIRM] Commande ${ref} en statut '${currentStatus}', pas de changement`);
     return NextResponse.json({
       success: true,
       message: `Commande en statut: ${currentStatus}`,

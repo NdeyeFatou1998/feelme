@@ -22,31 +22,36 @@ function SuccesContent() {
   const [order, setOrder] = useState<any>(null);
 
   /* --- Confirmer le paiement + charger les détails de la commande --- */
-  /* Appelle /api/orders/confirm en fallback si l'IPN PayTech n'a pas fonctionné */
+  /* Appelle /api/orders/confirm en fallback si l'IPN PayTech n'a pas fonctionné.
+     Si le 1er appel échoue (réseau, cold start), on retente après 2s. */
   useEffect(() => {
-    if (ref) {
-      /* --- 1. Confirmer le paiement (fallback IPN) --- */
-      fetch('/api/orders/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ref }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success && data.order) {
-            setOrder(data.order);
-          } else {
-            /* --- 2. Fallback : charger la commande directement --- */
-            fetch(`/api/orders/${ref}`)
-              .then((res) => res.json())
-              .then((data) => {
-                if (data.success) setOrder(data.order);
-              })
-              .catch(console.error);
-          }
-        })
-        .catch(console.error);
-    }
+    if (!ref) return;
+
+    const confirmOrder = async (attempt: number) => {
+      try {
+        console.log(`[SUCCES] Tentative ${attempt} de confirmation pour ${ref}`);
+        const res = await fetch('/api/orders/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ref }),
+        });
+        const data = await res.json();
+        if (data.success && data.order) {
+          setOrder(data.order);
+          console.log(`[SUCCES] Commande ${ref} confirmée (tentative ${attempt})`);
+        } else if (attempt < 3) {
+          /* Retenter après un délai (cold start Vercel, etc.) */
+          setTimeout(() => confirmOrder(attempt + 1), 2000);
+        }
+      } catch (err) {
+        console.error(`[SUCCES] Erreur tentative ${attempt}:`, err);
+        if (attempt < 3) {
+          setTimeout(() => confirmOrder(attempt + 1), 2000);
+        }
+      }
+    };
+
+    confirmOrder(1);
   }, [ref]);
 
   return (
