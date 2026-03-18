@@ -31,6 +31,15 @@ export interface CompanyInfo {
   companyWebsite: string;
 }
 
+/**
+ * Formate un nombre en prix lisible (ex: 3 500)
+ * On n'utilise PAS toLocaleString car sur Vercel serverless
+ * il peut produire '3/500' au lieu de '3 500'.
+ */
+function formatPrice(n: number): string {
+  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
 /* --- Valeurs par défaut si Settings non chargées --- */
 export const DEFAULT_COMPANY: CompanyInfo = {
   companyName: 'Feel Me',
@@ -203,9 +212,9 @@ export async function generateInvoicePDF(order: OrderAttributes, company?: Compa
           doc.fillColor(darkText);
           doc.text(item.name, colArticle, yTable + 7, { width: 260 });
           doc.text(String(item.quantity), colQty, yTable + 7, { width: 50, align: 'center' });
-          doc.text(`${unitPrice.toLocaleString('fr-FR')} F`, colUnit, yTable + 7, { width: 70, align: 'right' });
+          doc.text(`${formatPrice(unitPrice)} F`, colUnit, yTable + 7, { width: 70, align: 'right' });
           doc.font('Helvetica-Bold')
-            .text(`${lineTotal.toLocaleString('fr-FR')} F`, colTotal, yTable + 7, { width: 60, align: 'right' });
+            .text(`${formatPrice(lineTotal)} F`, colTotal, yTable + 7, { width: 60, align: 'right' });
           doc.font('Helvetica');
 
           yTable += 25;
@@ -233,7 +242,7 @@ export async function generateInvoicePDF(order: OrderAttributes, company?: Compa
       doc.font('Helvetica-Bold')
         .fontSize(14)
         .fillColor(gold)
-        .text(`TOTAL : ${order.totalAmount.toLocaleString('fr-FR')} FCFA`, 360, yTable + 3, {
+        .text(`TOTAL : ${formatPrice(order.totalAmount)} FCFA`, 360, yTable + 3, {
           width: doc.page.width - 420,
           align: 'right',
         });
