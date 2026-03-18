@@ -40,10 +40,6 @@ export default function ProductCard({
   const effectivePrice = promoPrice || price;
   const hasPromo = promoPrice !== null && promoPrice !== undefined && promoPrice < price;
 
-  /* --- Calcul du pourcentage de réduction --- */
-  const discountPercent = hasPromo
-    ? Math.round(((price - promoPrice!) / price) * 100)
-    : 0;
 
   /**
    * Ajouter au panier avec les infos nécessaires
@@ -73,13 +69,6 @@ export default function ProductCard({
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <Sparkles className="w-12 h-12 text-[#c9a84c]/30" />
-          </div>
-        )}
-
-        {/* --- Badge promo --- */}
-        {hasPromo && (
-          <div className="promo-badge absolute top-3 right-3 bg-[#c9a84c] text-white text-xs font-bold px-3 py-1.5 rounded-full">
-            -{discountPercent}%
           </div>
         )}
 
