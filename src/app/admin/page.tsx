@@ -1068,13 +1068,20 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
   const [expandedOrder, setExpandedOrder] = useState<number | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState<number | null>(null);
   const [downloadingInvoice, setDownloadingInvoice] = useState<number | null>(null);
-  /* --- État formulaire commande manuelle --- */
   const [showManualForm, setShowManualForm] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [manualForm, setManualForm] = useState({
     firstName: '', lastName: '', phone: '', email: '', address: '',
     totalAmount: '', deposit: '', paymentMethod: 'Especes', notes: '',
-    itemsText: '', // Format libre : "2x Parfum 6ml, 1x Pack Duo"
+    itemsText: '',
+  });
+  const [editingOrder, setEditingOrder] = useState<OrderData | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editForm, setEditForm] = useState({
+    firstName: '', lastName: '', phone: '', email: '', address: '',
+    totalAmount: '', deposit: '', remaining: '', status: 'pending',
+    paymentMethod: '', notes: '',
   });
 
   /* --- Télécharger la facture PDF d'une commande --- */
@@ -1114,7 +1121,6 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
     if (!manualForm.firstName || !manualForm.lastName || !manualForm.phone || !manualForm.totalAmount) return;
     setCreatingOrder(true);
     try {
-      /* Convertir le texte articles en tableau items */
       const items = manualForm.itemsText.split(',').filter(s => s.trim()).map((s) => {
         const trimmed = s.trim();
         const match = trimmed.match(/^(\d+)\s*x\s*(.+)/i);
@@ -1147,6 +1153,84 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
       }
     } catch (error) { console.error('Erreur création commande manuelle:', error); }
     finally { setCreatingOrder(false); }
+  };
+
+  /* --- Ouvrir le modal d'édition --- */
+  const handleEditOrder = (order: OrderData) => {
+    const firstName = order.first_name || order.firstName || '';
+    const lastName = order.last_name || order.lastName || '';
+    const totalAmount = order.total_amount || order.totalAmount || 0;
+    const paymentMethod = order.payment_method || order.paymentMethod || '';
+    
+    setEditingOrder(order);
+    setEditForm({
+      firstName,
+      lastName,
+      phone: order.phone,
+      email: order.email,
+      address: order.address,
+      totalAmount: String(totalAmount),
+      deposit: String(order.deposit || 0),
+      remaining: String(order.remaining || 0),
+      status: order.status,
+      paymentMethod,
+      notes: order.notes || '',
+    });
+    setShowEditModal(true);
+  };
+
+  /* --- Sauvegarder les modifications --- */
+  const handleSaveEdit = async () => {
+    if (!editingOrder) return;
+    setSavingEdit(true);
+    try {
+      const res = await authFetch(`/api/orders/${editingOrder.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          firstName: editForm.firstName,
+          lastName: editForm.lastName,
+          phone: editForm.phone,
+          email: editForm.email,
+          address: editForm.address,
+          totalAmount: Number(editForm.totalAmount),
+          deposit: Number(editForm.deposit),
+          remaining: Number(editForm.remaining),
+          status: editForm.status,
+          paymentMethod: editForm.paymentMethod,
+          notes: editForm.notes,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowEditModal(false);
+        setEditingOrder(null);
+        onRefresh();
+      } else {
+        alert(`Erreur: ${data.error || 'Impossible de modifier la commande'}`);
+      }
+    } catch (error) {
+      console.error('Erreur modification commande:', error);
+      alert('Erreur lors de la modification');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  /* --- Supprimer une commande --- */
+  const handleDeleteOrder = async (orderId: number, orderRef: string) => {
+    if (!confirm(`Supprimer définitivement la commande ${orderRef} ?\n\nCette action est irréversible.`)) return;
+    try {
+      const res = await authFetch(`/api/orders/${orderId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        onRefresh();
+      } else {
+        alert(`Erreur: ${data.error || 'Impossible de supprimer la commande'}`);
+      }
+    } catch (error) {
+      console.error('Erreur suppression commande:', error);
+      alert('Erreur lors de la suppression');
+    }
   };
 
   return (
@@ -1381,34 +1465,53 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
                         </div>
                       </div>
 
-                      {/* Changement de statut + Téléchargement facture */}
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <label className="text-xs text-gray-400">Statut :</label>
-                        <select
-                          value={order.status}
-                          onChange={(e) => handleStatusChange(order.id, e.target.value)}
-                          disabled={updatingStatus === order.id}
-                          className="px-3 py-2 bg-white border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30"
-                        >
-                          <option value="pending">En attente</option>
-                          <option value="paid">Payée</option>
-                          <option value="shipped">Expédiée</option>
-                          <option value="delivered">Livrée</option>
-                          <option value="cancelled">Annulée</option>
-                        </select>
-                        {updatingStatus === order.id && <Loader2 className="w-4 h-4 animate-spin text-[#c9a84c]" />}
+                      {/* Actions : Statut + Boutons */}
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <label className="text-xs text-gray-400">Statut :</label>
+                          <select
+                            value={order.status}
+                            onChange={(e) => handleStatusChange(order.id, e.target.value)}
+                            disabled={updatingStatus === order.id}
+                            className="px-3 py-2 bg-white border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30"
+                          >
+                            <option value="pending">En attente</option>
+                            <option value="paid">Payée</option>
+                            <option value="shipped">Expédiée</option>
+                            <option value="delivered">Livrée</option>
+                            <option value="cancelled">Annulée</option>
+                          </select>
+                          {updatingStatus === order.id && <Loader2 className="w-4 h-4 animate-spin text-[#c9a84c]" />}
+                        </div>
 
-                        {/* --- Bouton télécharger facture PDF --- */}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDownloadInvoice(order.id, order.ref); }}
-                          disabled={downloadingInvoice === order.id}
-                          className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] text-white text-xs font-semibold rounded-lg hover:shadow-md transition-all disabled:opacity-50"
-                        >
-                          {downloadingInvoice === order.id
-                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            : <FileDown className="w-3.5 h-3.5" />}
-                          Facture PDF
-                        </button>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleEditOrder(order); }}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-500 text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-all"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            Modifier
+                          </button>
+
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDownloadInvoice(order.id, order.ref); }}
+                            disabled={downloadingInvoice === order.id}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] text-white text-xs font-semibold rounded-lg hover:shadow-md transition-all disabled:opacity-50"
+                          >
+                            {downloadingInvoice === order.id
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <FileDown className="w-3.5 h-3.5" />}
+                            Facture PDF
+                          </button>
+
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteOrder(order.id, order.ref); }}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-500 text-white text-xs font-semibold rounded-lg hover:bg-red-600 transition-all"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Supprimer
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1418,6 +1521,182 @@ function OrdersTab({ orders, authFetch, onRefresh }: {
           </div>
         )}
       </div>
+
+      {/* ==========================================
+          MODAL D'ÉDITION DE COMMANDE
+          ========================================== */}
+      {showEditModal && editingOrder && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowEditModal(false)}>
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-[#f0e6d3] px-6 py-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">Modifier la commande</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Référence : {editingOrder.ref}</p>
+              </div>
+              <button onClick={() => setShowEditModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Informations client */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Informations client</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Prénom</label>
+                    <input
+                      type="text"
+                      value={editForm.firstName}
+                      onChange={(e) => setEditForm({ ...editForm, firstName: e.target.value })}
+                      className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Nom</label>
+                    <input
+                      type="text"
+                      value={editForm.lastName}
+                      onChange={(e) => setEditForm({ ...editForm, lastName: e.target.value })}
+                      className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Téléphone</label>
+                    <input
+                      type="tel"
+                      value={editForm.phone}
+                      onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                      className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={editForm.email}
+                      onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                      className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30"
+                    />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Adresse de livraison</label>
+                  <textarea
+                    value={editForm.address}
+                    onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                    rows={2}
+                    className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* Montants */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Montants</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Total (FCFA)</label>
+                    <input
+                      type="number"
+                      value={editForm.totalAmount}
+                      onChange={(e) => {
+                        const total = Number(e.target.value);
+                        const deposit = Number(editForm.deposit);
+                        setEditForm({ ...editForm, totalAmount: e.target.value, remaining: String(Math.max(0, total - deposit)) });
+                      }}
+                      className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Acompte (FCFA)</label>
+                    <input
+                      type="number"
+                      value={editForm.deposit}
+                      onChange={(e) => {
+                        const deposit = Number(e.target.value);
+                        const total = Number(editForm.totalAmount);
+                        setEditForm({ ...editForm, deposit: e.target.value, remaining: String(Math.max(0, total - deposit)) });
+                      }}
+                      className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Restant (FCFA)</label>
+                    <input
+                      type="number"
+                      value={editForm.remaining}
+                      readOnly
+                      className="w-full px-3 py-2.5 bg-gray-100 border border-[#f0e6d3] rounded-lg text-sm text-gray-600 cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Statut et paiement */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Statut et paiement</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Statut</label>
+                    <select
+                      value={editForm.status}
+                      onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                      className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30"
+                    >
+                      <option value="pending">En attente</option>
+                      <option value="paid">Payée</option>
+                      <option value="shipped">Expédiée</option>
+                      <option value="delivered">Livrée</option>
+                      <option value="cancelled">Annulée</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Mode de paiement</label>
+                    <input
+                      type="text"
+                      value={editForm.paymentMethod}
+                      onChange={(e) => setEditForm({ ...editForm, paymentMethod: e.target.value })}
+                      className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30"
+                      placeholder="Ex: Wave, Espèces, etc."
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Notes / Commentaires</label>
+                <textarea
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2.5 bg-[#fafafa] border border-[#f0e6d3] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30 resize-none"
+                  placeholder="Instructions spéciales, remarques..."
+                />
+              </div>
+
+              {/* Boutons d'action */}
+              <div className="flex items-center gap-3 pt-4 border-t border-[#f0e6d3]">
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={savingEdit}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#c9a84c] to-[#e8d48b] text-white font-semibold rounded-xl hover:shadow-md transition-all disabled:opacity-50"
+                >
+                  {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Enregistrer les modifications
+                </button>
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="px-6 py-3 text-sm text-gray-500 hover:text-gray-700 transition-all"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
