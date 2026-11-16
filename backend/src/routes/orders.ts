@@ -4,6 +4,8 @@ import { authenticateAdmin } from '../auth';
 import { createPaymentRequest } from '../paytech';
 import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../email';
 import { generateInvoicePDF, CompanyInfo, DEFAULT_COMPANY } from '../invoice';
+import { syncOrder, syncOrderInBackground } from '../aja';
+import type { OrderAttributes } from '../models/Order';
 
 const router = Router();
 
@@ -146,6 +148,7 @@ router.post('/manual', async (req: Request, res: Response) => {
     });
 
     console.log(`[ORDERS/MANUAL] Commande manuelle créée : ${ref} par admin`);
+    syncOrderInBackground(order);
 
     res.status(201).json({ success: true, order });
   } catch (error) {
@@ -195,6 +198,7 @@ router.post('/confirm', async (req: Request, res: Response) => {
 
       await order.reload();
       const updatedOrder = order.toJSON();
+      syncOrderInBackground(order);
 
       try {
         await Promise.all([
@@ -356,6 +360,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     await order.reload();
 
     console.log(`[API/ORDERS/ID] Commande ${id} modifiée par admin ${adminAuth.email}`);
+    syncOrderInBackground(order);
 
     res.json({
       success: true,
@@ -386,7 +391,10 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
 
     const orderRef = (order as any).ref;
+    const deletedOrder = order.get({ plain: true }) as OrderAttributes;
     await order.destroy();
+    /* AJA ne supprime pas de commande : on la passe en annulée si elle y est. */
+    void syncOrder({ ...deletedOrder, status: 'cancelled' });
 
     console.log(`[API/ORDERS/ID] Commande ${orderRef} supprimée par admin ${adminAuth.email}`);
 
