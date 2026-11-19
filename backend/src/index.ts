@@ -26,8 +26,6 @@ import uploadRouter from './routes/upload';
 import settingsRouter from './routes/settings';
 import adminsRouter from './routes/admins';
 import fixPackPriceRouter from './routes/fix-pack-price';
-import ajaRouter from './routes/aja';
-import { startAja } from './aja';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -66,7 +64,6 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/admins', adminsRouter);
 app.use('/api/fix-pack-price', fixPackPriceRouter);
-app.use('/api/aja', ajaRouter);
 
 app.get('/', (_req, res) => {
   res.json({
@@ -90,7 +87,6 @@ async function start() {
     console.log(`[SERVER] Feel Me API écoute sur le port ${PORT}`);
     console.log(`[SERVER] FRONT_URL=${frontUrl}`);
     console.log(`[SERVER] API_URL=${process.env.API_URL || `http://localhost:${PORT}`}`);
-    startAja();
   });
 }
 
