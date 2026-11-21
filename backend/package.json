@@ -4,16 +4,18 @@
   "private": true,
   "description": "Feel Me e-commerce API (Express + TypeScript)",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "tsx src/index.ts",
     "start:dist": "node dist/index.js",
-    "seed": "tsx src/seed-run.ts"
+    "seed": "tsx src/seed-run.ts",
+    "test": "tsx --test src/aja/aja.test.ts"
   },
   "dependencies": {
+    "@ajaflow/sdk": "^1.0.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
