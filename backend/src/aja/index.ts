@@ -21,6 +21,7 @@ import type { ProductAttributes } from '../models/Product';
 import { PRODUCT_SCHEMA, SCHEMA_VERSION, packRef, packValues, productRef, productValues } from './catalogue';
 import type { OrderAttributes } from '../models/Order';
 import { createSingleFlight, OrderStore, processCommandsOnce } from './decisions';
+import { createCatalogueStore } from './catalogue-store';
 import { AssetBases, buildOrderInput, CURRENCY, TIMEZONE } from './mapping';
 import { allowedNextLabels, DELETED_LABEL, isValidated, paymentStatusOf, statusLabel } from './statuses';
 
@@ -169,10 +170,33 @@ const orderStore: OrderStore = {
   },
 };
 
+/* Décisions produit : après chaque création ou modification, l'article repart vers AJA
+   sous la même référence (sa photo pointe alors vers notre copie, pas celle d'AJA). */
+const catalogueStore = createCatalogueStore({
+  bases: () => assetBases(),
+  onChanged: (ref) => {
+    setTimeout(() => {
+      void (async () => {
+        try {
+          if (ref.kind === 'pack') {
+            const pack = await Pack.findByPk(ref.id);
+            if (pack) await sendPack(pack);
+          } else {
+            const product = await Product.findByPk(ref.id);
+            if (product) await sendProduct(product);
+          }
+        } catch (error) {
+          logAjaError(`Renvoi de ${ref.kind} ${ref.id}`, error);
+        }
+      })();
+    }, 1_000).unref();
+  },
+});
+
 export const processCommands = createSingleFlight(async () => {
   const aja = getAja();
   if (!aja) return;
-  await processCommandsOnce(aja, orderStore);
+  await processCommandsOnce(aja, orderStore, catalogueStore);
 });
 
 /* ---------- 4. Le catalogue ---------- */
