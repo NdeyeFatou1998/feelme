@@ -12,7 +12,7 @@
     "start": "tsx src/index.ts",
     "start:dist": "node dist/index.js",
     "seed": "tsx src/seed-run.ts",
-    "test": "tsx --test src/aja/aja.test.ts"
+    "test": "tsx --test src/aja/aja.test.ts src/aja/model.test.ts"
   },
   "dependencies": {
     "@ajaflow/sdk": "^1.0.0",

@@ -16,6 +16,7 @@ const router = Router();
 
 router.get('/wake', async (req: Request, res: Response) => {
   res.sendStatus(204);
+  console.log(`[AJA] Réveil reçu (${Object.keys(req.query).join(', ') || 'sans paramètre'})`);
   const aja = getAja();
   if (!aja) return;
   try {
