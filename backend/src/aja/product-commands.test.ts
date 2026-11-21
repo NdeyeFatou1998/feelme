@@ -53,6 +53,18 @@ test('contenu du pack : même format que celui envoyé par le site', () => {
   assert.throws(() => parsePackContents('', products), /contenu du pack/);
 });
 
+test('contenu du pack : ancien nom d’un parfum renommé accepté', () => {
+  const products = [{ id: 1, name: 'Musc Tahara Original 3ml' }, { id: 2, name: 'Musc Tahara Original 6ml' }];
+  const aliases = [{ id: 1, name: 'Musc Tahara 3ml' }];
+  assert.deepEqual(parsePackContents('3 × Musc Tahara 3ml', products, aliases), [
+    { productId: 1, productName: 'Musc Tahara Original 3ml', quantity: 3 },
+  ]);
+  assert.deepEqual(parsePackContents('3 ×  musc tahara original 3ml', products), [
+    { productId: 1, productName: 'Musc Tahara Original 3ml', quantity: 3 },
+  ]);
+  assert.throws(() => parsePackContents('3 × Musc Tahara 3ml', products), /Parfums : Musc Tahara Original 3ml/);
+});
+
 test('image déjà à nous → chemin en base ; externe → null (à télécharger)', () => {
   const bases = { api: 'https://api.feelme.test', front: 'https://www.feel-me.store' };
   assert.equal(ownImagePath('https://www.feel-me.store/images/feelme6ml.jpeg', bases), '/images/feelme6ml.jpeg');

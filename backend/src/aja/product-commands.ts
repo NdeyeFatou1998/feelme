@@ -137,8 +137,11 @@ export function pickCategory(
  */
 export function parsePackContents(
   contents: string | null | undefined,
-  products: Array<{ id: number; name: string }>
+  products: Array<{ id: number; name: string }>,
+  /** Anciens noms connus (ceux gardés dans le pack), si un parfum a été renommé depuis. */
+  aliases: Array<{ id: number; name: string }> = []
 ): Array<{ productId: number; productName: string; quantity: number }> {
+  const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
   const lines = String(contents ?? '')
     .split(/\r?\n|;/)
     .map((l) => l.trim())
@@ -148,8 +151,16 @@ export function parsePackContents(
     const m = /^(\d+)\s*[×x*]\s*(.+)$/i.exec(line);
     const quantity = m ? Number(m[1]) : 1;
     const name = (m ? m[2] : line).trim();
-    const product = products.find((p) => p.name.trim().toLowerCase() === name.toLowerCase());
-    if (!product) throw new ShopRefusal(`Parfum « ${name} » introuvable pour le pack.`);
+    let product = products.find((p) => norm(p.name) === norm(name));
+    if (!product) {
+      const alias = aliases.find((a) => norm(a.name) === norm(name));
+      product = alias ? products.find((p) => p.id === alias.id) : undefined;
+    }
+    if (!product) {
+      throw new ShopRefusal(
+        `Parfum « ${name} » introuvable pour le pack. Parfums : ${products.map((p) => p.name).join(', ')}.`
+      );
+    }
     if (quantity < 1) throw new ShopRefusal(`Quantité invalide pour « ${name} ».`);
     return { productId: product.id, productName: product.name, quantity };
   });

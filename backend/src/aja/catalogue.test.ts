@@ -1,7 +1,7 @@
 /** Tests du catalogue AJA (sans base ni réseau). */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PRODUCT_SCHEMA, packRef, packValues, productRef, productValues } from './catalogue';
+import { PRODUCT_SCHEMA, packContentsText, packRef, packValues, productRef, productValues } from './catalogue';
 
 test('formulaire : clés valides, uniques, un champ requis, ordre de la liste', () => {
   const keys = PRODUCT_SCHEMA.fields.map((f) => f.key);
@@ -61,4 +61,18 @@ test('pack → valeurs avec son contenu', () => {
   assert.equal(values.prix, 25000);
   assert.equal(values.stock, undefined);
   assert.equal(packRef(3), 'pack-3');
+});
+
+test('contenu du pack avec le nom actuel du parfum (renommé depuis)', () => {
+  const items = [{ quantity: 3, productId: 1, productName: 'Musc Tahara 3ml' }];
+  const names = new Map([[1, 'Musc Tahara Original 3ml']]);
+  assert.equal(packContentsText(items, names), '3 × Musc Tahara Original 3ml');
+  assert.equal(packContentsText(items), '3 × Musc Tahara 3ml');
+  const values = packValues(
+    { id: 1, name: 'Pack 3 x Musc Tahara 3ml', description: null, price: 6000, promoPrice: 5000, image: null, items },
+    null,
+    { api: null, front: null },
+    names
+  );
+  assert.equal(values.contenu_pack, '3 × Musc Tahara Original 3ml');
 });

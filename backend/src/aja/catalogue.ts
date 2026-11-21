@@ -73,10 +73,23 @@ export function productValues(
 
 type PackLike = Pick<PackAttributes, 'id' | 'name' | 'description' | 'price' | 'promoPrice' | 'image' | 'items'>;
 
-export function packValues(pack: PackLike, categoryName: string | null, bases: AssetBases): Record<string, unknown> {
-  const contents = (Array.isArray(pack.items) ? pack.items : [])
-    .map((i) => `${Number(i.quantity) || 1} × ${i.productName || `produit ${i.productId}`}`)
+/** « Contenu du pack », une ligne par parfum, avec le nom ACTUEL du parfum (pas celui gardé dans le pack). */
+export function packContentsText(
+  items: PackLike['items'],
+  productNames: Map<number, string> = new Map()
+): string {
+  return (Array.isArray(items) ? items : [])
+    .map((i) => `${Number(i.quantity) || 1} × ${productNames.get(Number(i.productId)) || i.productName || `produit ${i.productId}`}`)
     .join('\n');
+}
+
+export function packValues(
+  pack: PackLike,
+  categoryName: string | null,
+  bases: AssetBases,
+  productNames: Map<number, string> = new Map()
+): Record<string, unknown> {
+  const contents = packContentsText(pack.items, productNames);
   return compact({
     photo: imageUrl(pack.image, bases),
     nom: pack.name,
