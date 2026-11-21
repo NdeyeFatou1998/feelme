@@ -137,12 +137,17 @@ export async function sendDeleted(order: OrderLike): Promise<void> {
 
 /* ---------- 3. Appliquer les décisions du marchand ---------- */
 
+/* Les champs publics du modèle masquent les getters Sequelize : toujours lire via get(). */
+export function readStatus(order: Order): OrderAttributes['status'] {
+  return order.get('status') as OrderAttributes['status'];
+}
+
 const orderStore: OrderStore = {
   async getStatus(externalId) {
     if (!/^\d+$/.test(externalId)) return null;
     await syncDatabase();
     const order = await Order.findByPk(Number(externalId));
-    return order ? order.status : null;
+    return order ? readStatus(order) : null;
   },
   async setStatus(externalId, status) {
     const order = await Order.findByPk(Number(externalId));
