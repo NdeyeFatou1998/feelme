@@ -15,7 +15,7 @@ test('produit → valeurs du formulaire', () => {
   const values = productValues(
     { id: 12, name: 'Oud Royal', description: 'Notes boisées', price: 15000, promoPrice: 12000, image: '/uploads/oud.jpg', volume: '6ml', stock: 8 },
     'Parfums homme',
-    'https://api.feelme.test'
+    { api: 'https://api.feelme.test', front: 'https://www.feelme.test' }
   );
   assert.deepEqual(values, {
     photo: 'https://api.feelme.test/uploads/oud.jpg',
@@ -35,9 +35,18 @@ test('champs vides omis, jamais un faux 0', () => {
   const values = productValues(
     { id: 1, name: 'Musc', description: null, price: 5000, promoPrice: null, image: null, volume: null, stock: 0 },
     null,
-    null
+    { api: null, front: null }
   );
   assert.deepEqual(values, { nom: 'Musc', prix: 5000, stock: 0, type: 'Parfum' });
+});
+
+test('image du front (/images/…) → adresse du front, en https', () => {
+  const values = productValues(
+    { id: 2, name: 'Feel Me 6ml', description: null, price: 5000, promoPrice: null, image: '/images/feelme6ml.jpeg', volume: '6ml', stock: 10 },
+    null,
+    { api: 'https://feelmebackend-production.up.railway.app', front: 'https://www.feel-me.store' }
+  );
+  assert.equal(values.photo, 'https://www.feel-me.store/images/feelme6ml.jpeg');
 });
 
 test('pack → valeurs avec son contenu', () => {
@@ -45,7 +54,7 @@ test('pack → valeurs avec son contenu', () => {
     { id: 3, name: 'Coffret Découverte', description: null, price: 25000, promoPrice: null, image: 'https://cdn.x/p.jpg',
       items: [{ productId: 1, productName: 'Musc', quantity: 2 }, { productId: 4, quantity: 1 }] },
     null,
-    null
+    { api: null, front: null }
   );
   assert.equal(values.contenu_pack, '2 × Musc\n1 × produit 4');
   assert.equal(values.type, 'Pack');

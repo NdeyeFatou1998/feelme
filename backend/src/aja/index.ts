@@ -21,7 +21,7 @@ import type { ProductAttributes } from '../models/Product';
 import { PRODUCT_SCHEMA, SCHEMA_VERSION, packRef, packValues, productRef, productValues } from './catalogue';
 import type { OrderAttributes } from '../models/Order';
 import { createSingleFlight, OrderStore, processCommandsOnce } from './decisions';
-import { buildOrderInput, CURRENCY, TIMEZONE } from './mapping';
+import { AssetBases, buildOrderInput, CURRENCY, TIMEZONE } from './mapping';
 import { allowedNextLabels, DELETED_LABEL, isValidated, paymentStatusOf, statusLabel } from './statuses';
 
 const POLL_INTERVAL_MS = 60_000;
@@ -49,6 +49,12 @@ export function publicBaseUrl(): string | null {
   if (fromEnv) return fromEnv.replace(/\/+$/, '');
   const railway = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
   return railway ? `https://${railway}` : null;
+}
+
+/** Adresses publiques d'où partent nos images (backend pour /uploads, front pour le reste). */
+export function assetBases(): AssetBases {
+  const front = process.env.FRONT_URL?.trim().replace(/\/+$/, '') || null;
+  return { api: publicBaseUrl(), front };
 }
 
 export function wakeUrl(): string | null {
@@ -97,7 +103,7 @@ export async function sendOrder(order: OrderLike): Promise<void> {
   const data = plain(order);
   try {
     if (isValidated(data)) {
-      await aja.orders.create(buildOrderInput(data, publicBaseUrl()));
+      await aja.orders.create(buildOrderInput(data, assetBases()));
       console.log(`[AJA] Commande ${data.ref} envoyée (${data.status})`);
     } else if (data.status === 'cancelled') {
       await sendStatus(data);
@@ -199,7 +205,7 @@ export async function sendProduct(row: Plain<ProductAttributes>, catName?: strin
       return;
     }
     const name = catName !== undefined ? catName : await categoryName(product.categoryId);
-    await aja.products.upsert(productRef(product.id), productValues(product, name, publicBaseUrl()), SCHEMA_VERSION);
+    await aja.products.upsert(productRef(product.id), productValues(product, name, assetBases()), SCHEMA_VERSION);
   } catch (error) {
     logAjaError(`Envoi du produit ${product.id}`, error);
   }
@@ -226,7 +232,7 @@ export async function sendPack(row: Plain<PackAttributes>, catName?: string | nu
       return;
     }
     const name = catName !== undefined ? catName : await categoryName(pack.categoryId);
-    await aja.products.upsert(packRef(pack.id), packValues(pack, name, publicBaseUrl()), SCHEMA_VERSION);
+    await aja.products.upsert(packRef(pack.id), packValues(pack, name, assetBases()), SCHEMA_VERSION);
   } catch (error) {
     logAjaError(`Envoi du pack ${pack.id}`, error);
   }
