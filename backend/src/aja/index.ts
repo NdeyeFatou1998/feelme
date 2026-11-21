@@ -246,7 +246,16 @@ export async function removeProduct(id: number | string): Promise<void> {
 }
 
 /** Envoie (ou retire, s'il n'est plus en vente) un pack. Ne lève jamais. */
-export async function sendPack(row: Plain<PackAttributes>, catName?: string | null): Promise<void> {
+async function productNames(): Promise<Map<number, string>> {
+  const rows = await Product.findAll({ attributes: ['id', 'name'] });
+  return new Map(rows.map((r) => [Number(r.get('id')), String(r.get('name'))]));
+}
+
+export async function sendPack(
+  row: Plain<PackAttributes>,
+  catName?: string | null,
+  names?: Map<number, string>
+): Promise<void> {
   const aja = getAja();
   if (!aja) return;
   const pack = plainOf<PackAttributes>(row);
@@ -256,7 +265,11 @@ export async function sendPack(row: Plain<PackAttributes>, catName?: string | nu
       return;
     }
     const name = catName !== undefined ? catName : await categoryName(pack.categoryId);
-    await aja.products.upsert(packRef(pack.id), packValues(pack, name, assetBases()), SCHEMA_VERSION);
+    await aja.products.upsert(
+      packRef(pack.id),
+      packValues(pack, name, assetBases(), names ?? (await productNames())),
+      SCHEMA_VERSION
+    );
   } catch (error) {
     logAjaError(`Envoi du pack ${pack.id}`, error);
   }
@@ -297,9 +310,10 @@ export const syncCatalogue = createSingleFlight(async () => {
     sent++;
     await pause(CATALOGUE_PAUSE_MS);
   }
+  const names = await productNames();
   for (const row of await Pack.findAll({ order: [['id', 'ASC']] })) {
     const pack = row.toJSON() as PackAttributes;
-    await sendPack(pack, pack.categoryId ? categories.get(pack.categoryId) ?? null : null);
+    await sendPack(pack, pack.categoryId ? categories.get(pack.categoryId) ?? null : null, names);
     sent++;
     await pause(CATALOGUE_PAUSE_MS);
   }

@@ -18,7 +18,7 @@ import { Category, Pack, Product, syncDatabase } from '../models';
 import type { PackItem } from '../models/Pack';
 import { CataloguePort, ShopRefusal } from './decisions';
 import type { AssetBases } from './mapping';
-import { packRef, productRef } from './catalogue';
+import { packContentsText, packRef, productRef } from './catalogue';
 import {
   CatalogueRef,
   IncomingFields,
@@ -169,7 +169,22 @@ export function createCatalogueStore(deps: Deps): CataloguePort {
         if (f.promoPrice !== undefined) changes.promoPrice = f.promoPrice;
         if (f.description !== undefined) changes.description = f.description;
         if (f.category !== undefined) changes.categoryId = f.category ? pickCategory(f.category, await categories()) : null;
-        if (f.packContents !== undefined) changes.items = parsePackContents(f.packContents, await productList());
+        if (f.packContents !== undefined) {
+          /* AJA renvoie souvent tout le formulaire : un contenu identique à celui envoyé ne change rien. */
+          const products = await productList();
+          const items = (pack.toJSON() as { items: PackItem[] }).items ?? [];
+          const names = new Map(products.map((p) => [p.id, p.name]));
+          const same = (a: string) => a.trim().replace(/\s+/g, ' ').toLowerCase();
+          const unchanged = [packContentsText(items, names), packContentsText(items)].some(
+            (t) => same(t) === same(f.packContents ?? '')
+          );
+          if (!unchanged) {
+            const aliases = items
+              .filter((i) => i.productName)
+              .map((i) => ({ id: Number(i.productId), name: String(i.productName) }));
+            changes.items = parsePackContents(f.packContents, products, aliases);
+          }
+        }
         if (f.photoUrl !== undefined) changes.image = await imagePath(f.photoUrl);
         if (Object.keys(changes).length) await pack.update(changes);
       } else {
