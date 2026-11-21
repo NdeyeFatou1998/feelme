@@ -15,13 +15,20 @@
  */
 
 import { ApiError, Client, ErrorCode } from '@ajaflow/sdk';
-import { Order, syncDatabase } from '../models';
+import { Category, Order, Pack, Product, syncDatabase } from '../models';
+import type { PackAttributes } from '../models/Pack';
+import type { ProductAttributes } from '../models/Product';
+import { PRODUCT_SCHEMA, SCHEMA_VERSION, packRef, packValues, productRef, productValues } from './catalogue';
 import type { OrderAttributes } from '../models/Order';
 import { createSingleFlight, OrderStore, processCommandsOnce } from './decisions';
 import { buildOrderInput, CURRENCY, TIMEZONE } from './mapping';
 import { allowedNextLabels, DELETED_LABEL, isValidated, paymentStatusOf, statusLabel } from './statuses';
 
 const POLL_INTERVAL_MS = 60_000;
+/* Au redéploiement, Railway sert encore l'ancien conteneur quelques secondes :
+   on attend avant de se déclarer, pour qu'AJA joigne bien le nouveau. */
+const STARTUP_DELAY_MS = 60_000;
+const CATALOGUE_PAUSE_MS = 500;
 const PROFILE_INTERVAL_MS = 24 * 60 * 60_000;
 
 let client: Client | null = null;
@@ -162,6 +169,113 @@ export const processCommands = createSingleFlight(async () => {
   await processCommandsOnce(aja, orderStore);
 });
 
+/* ---------- 4. Le catalogue ---------- */
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+type Plain<T> = { toJSON(): unknown } | T;
+function plainOf<T>(row: Plain<T>): T {
+  return (row && typeof (row as any).toJSON === 'function' ? (row as any).toJSON() : row) as T;
+}
+
+async function categoryName(categoryId: number | null | undefined): Promise<string | null> {
+  if (!categoryId) return null;
+  const category = await Category.findByPk(categoryId);
+  return category ? ((category.get('name') as string) ?? null) : null;
+}
+
+function isProductMissing(error: unknown): boolean {
+  return error instanceof ApiError && (error.code === ErrorCode.PRODUCT_NOT_FOUND || error.code === ErrorCode.NOT_FOUND);
+}
+
+/** Envoie (ou retire, s'il n'est plus en vente) un produit. Ne lève jamais. */
+export async function sendProduct(row: Plain<ProductAttributes>, catName?: string | null): Promise<void> {
+  const aja = getAja();
+  if (!aja) return;
+  const product = plainOf<ProductAttributes>(row);
+  try {
+    if (!product.isActive) {
+      await removeProduct(product.id);
+      return;
+    }
+    const name = catName !== undefined ? catName : await categoryName(product.categoryId);
+    await aja.products.upsert(productRef(product.id), productValues(product, name, publicBaseUrl()), SCHEMA_VERSION);
+  } catch (error) {
+    logAjaError(`Envoi du produit ${product.id}`, error);
+  }
+}
+
+export async function removeProduct(id: number | string): Promise<void> {
+  const aja = getAja();
+  if (!aja) return;
+  try {
+    await aja.products.delete(productRef(id));
+  } catch (error) {
+    if (!isProductMissing(error)) logAjaError(`Retrait du produit ${id}`, error);
+  }
+}
+
+/** Envoie (ou retire, s'il n'est plus en vente) un pack. Ne lève jamais. */
+export async function sendPack(row: Plain<PackAttributes>, catName?: string | null): Promise<void> {
+  const aja = getAja();
+  if (!aja) return;
+  const pack = plainOf<PackAttributes>(row);
+  try {
+    if (!pack.isActive) {
+      await removePack(pack.id);
+      return;
+    }
+    const name = catName !== undefined ? catName : await categoryName(pack.categoryId);
+    await aja.products.upsert(packRef(pack.id), packValues(pack, name, publicBaseUrl()), SCHEMA_VERSION);
+  } catch (error) {
+    logAjaError(`Envoi du pack ${pack.id}`, error);
+  }
+}
+
+export async function removePack(id: number | string): Promise<void> {
+  const aja = getAja();
+  if (!aja) return;
+  try {
+    await aja.products.delete(packRef(id));
+  } catch (error) {
+    if (!isProductMissing(error)) logAjaError(`Retrait du pack ${id}`, error);
+  }
+}
+
+/** Formulaire puis tout le catalogue, un article toutes les demi-secondes. Rejouable sans risque. */
+export const syncCatalogue = createSingleFlight(async () => {
+  const aja = getAja();
+  if (!aja) return;
+  try {
+    await aja.products.putSchema(PRODUCT_SCHEMA);
+  } catch (error) {
+    /* Le marchand règle peut-être le formulaire dans AJA : on envoie quand même les produits. */
+    logAjaError('Formulaire produit', error);
+  }
+
+  await syncDatabase();
+  const categories = new Map<number, string>();
+  for (const c of await Category.findAll()) {
+    const cat = c.toJSON() as { id: number; name: string };
+    categories.set(cat.id, cat.name);
+  }
+
+  let sent = 0;
+  for (const row of await Product.findAll({ order: [['id', 'ASC']] })) {
+    const product = row.toJSON() as ProductAttributes;
+    await sendProduct(product, categories.get(product.categoryId) ?? null);
+    sent++;
+    await pause(CATALOGUE_PAUSE_MS);
+  }
+  for (const row of await Pack.findAll({ order: [['id', 'ASC']] })) {
+    const pack = row.toJSON() as PackAttributes;
+    await sendPack(pack, pack.categoryId ? categories.get(pack.categoryId) ?? null : null);
+    sent++;
+    await pause(CATALOGUE_PAUSE_MS);
+  }
+  console.log(`[AJA] Catalogue envoyé : ${sent} article(s) traité(s).`);
+});
+
 /* ---------- Démarrage ---------- */
 
 export function startAja(): void {
@@ -171,8 +285,12 @@ export function startAja(): void {
   }
   console.log('[AJA] Intégration active.');
 
-  void declareShop();
-  setInterval(() => void declareShop(), PROFILE_INTERVAL_MS).unref();
+  const daily = async () => {
+    await declareShop();
+    await syncCatalogue().catch((error) => logAjaError('Catalogue', error));
+  };
+  setTimeout(() => void daily(), STARTUP_DELAY_MS).unref();
+  setInterval(() => void daily(), PROFILE_INTERVAL_MS).unref();
 
   const poll = () =>
     processCommands().catch((error) => logAjaError('Relevé des décisions', error));
