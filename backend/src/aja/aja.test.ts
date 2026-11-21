@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Command, toMinor } from '@ajaflow/sdk';
-import { buildOrderInput, normalizePhone, absoluteUrl } from './mapping';
+import { buildOrderInput, normalizePhone, imageUrl } from './mapping';
 import { createSingleFlight, OrderStore, processCommandsOnce } from './decisions';
 import { OrderStatus, parseStatus } from './statuses';
 
@@ -34,7 +34,7 @@ const baseOrder = {
 /* ---------- Correspondance d'une commande ---------- */
 
 test('commande payée du site → OrderInput complet', () => {
-  const body = buildOrderInput(baseOrder, 'https://api.feelme.test').toJSON();
+  const body = buildOrderInput(baseOrder, { api: 'https://api.feelme.test', front: 'https://www.feelme.test' }).toJSON();
   assert.equal(body.external_id, '42');
   assert.equal(body.status, 'payée');
   assert.deepEqual(body.allowed_next, ['expédiée', 'annulée']);
@@ -66,7 +66,7 @@ test('commande manuelle avec acompte, sans article ni e-mail', () => {
       remaining: 35000,
       paymentMethod: 'Espèces',
     },
-    null
+    { api: null, front: null }
   ).toJSON();
   assert.equal(body.status, 'en attente');
   assert.deepEqual(body.allowed_next, ['payée', 'annulée']);
@@ -93,8 +93,12 @@ test('téléphones et URL d’images', () => {
   assert.equal(normalizePhone('00221770001122'), '+221770001122');
   assert.equal(normalizePhone('+33612345678'), '+33612345678');
   assert.equal(normalizePhone(''), null);
-  assert.equal(absoluteUrl('https://cdn.x/a.jpg', null), 'https://cdn.x/a.jpg');
-  assert.equal(absoluteUrl('uploads/a.jpg', 'https://api.x/'), 'https://api.x/uploads/a.jpg');
+  const bases = { api: 'https://api.x/', front: 'https://www.x' };
+  assert.equal(imageUrl('https://cdn.x/a.jpg', bases), 'https://cdn.x/a.jpg');
+  assert.equal(imageUrl('uploads/a.jpg', bases), 'https://api.x/uploads/a.jpg');
+  assert.equal(imageUrl('/uploads/a.jpg', bases), 'https://api.x/uploads/a.jpg');
+  assert.equal(imageUrl('/images/feelme6ml.jpeg', bases), 'https://www.x/images/feelme6ml.jpeg');
+  assert.equal(imageUrl('/images/a.jpg', { api: 'https://api.x', front: null }), null);
 });
 
 test('libellés reconnus dans les deux sens', () => {

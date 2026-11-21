@@ -37,12 +37,20 @@ export function amount(value: unknown): number | null {
   return toMinor(String(value), CURRENCY);
 }
 
-/** Les images d'upload sont relatives (/uploads/…) : AJA a besoin d'une URL complète. */
-export function absoluteUrl(url: string | null | undefined, baseUrl: string | null): string | null {
+/** Où sont servies nos images : /uploads/… par le backend, le reste (/images/…) par le front. */
+export type AssetBases = { api: string | null; front: string | null };
+
+/**
+ * Image relative → adresse complète, publique : AJA n'affiche que le https.
+ * /uploads/… vient du backend (Express) ; /images/… et le reste viennent du front (Vercel, public/).
+ */
+export function imageUrl(url: string | null | undefined, bases: AssetBases): string | null {
   if (!url) return null;
   if (/^https?:\/\//i.test(url)) return url;
-  if (!baseUrl) return null;
-  return `${baseUrl.replace(/\/+$/, '')}/${url.replace(/^\/+/, '')}`;
+  const path = url.replace(/^\/+/, '');
+  const base = path.startsWith('uploads/') ? bases.api : bases.front;
+  if (!base) return null;
+  return `${base.replace(/\/+$/, '')}/${path}`;
 }
 
 type OrderForAja = Pick<
@@ -64,12 +72,12 @@ type OrderForAja = Pick<
   | 'paymentMethod'
 >;
 
-export function buildOrderInput(order: OrderForAja, baseUrl: string | null): OrderInput {
+export function buildOrderInput(order: OrderForAja, bases: AssetBases): OrderInput {
   const total = amount(order.totalAmount) ?? 0;
 
   const lines: OrderLine[] = (Array.isArray(order.items) ? order.items : []).map((item) => {
     const extras: Record<string, unknown> = {};
-    const image = absoluteUrl(item.image, baseUrl);
+    const image = imageUrl(item.image, bases);
     if (image) extras.image_url = image;
     if (item.type === 'pack') extras.type = 'Pack';
     return {

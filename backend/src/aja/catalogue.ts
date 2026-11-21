@@ -13,7 +13,7 @@
 import type { ProductSchema } from '@ajaflow/sdk';
 import type { ProductAttributes } from '../models/Product';
 import type { PackAttributes } from '../models/Pack';
-import { absoluteUrl, amount } from './mapping';
+import { AssetBases, amount, imageUrl } from './mapping';
 
 /** À incrémenter dès que les champs du formulaire changent. */
 export const SCHEMA_VERSION = 1;
@@ -56,10 +56,10 @@ type ProductLike = Pick<
 export function productValues(
   product: ProductLike,
   categoryName: string | null,
-  baseUrl: string | null
+  bases: AssetBases
 ): Record<string, unknown> {
   return compact({
-    photo: absoluteUrl(product.image, baseUrl),
+    photo: imageUrl(product.image, bases),
     nom: product.name,
     prix: amount(product.price),
     stock: product.stock === null || product.stock === undefined ? null : Number(product.stock),
@@ -73,12 +73,12 @@ export function productValues(
 
 type PackLike = Pick<PackAttributes, 'id' | 'name' | 'description' | 'price' | 'promoPrice' | 'image' | 'items'>;
 
-export function packValues(pack: PackLike, categoryName: string | null, baseUrl: string | null): Record<string, unknown> {
+export function packValues(pack: PackLike, categoryName: string | null, bases: AssetBases): Record<string, unknown> {
   const contents = (Array.isArray(pack.items) ? pack.items : [])
     .map((i) => `${Number(i.quantity) || 1} × ${i.productName || `produit ${i.productId}`}`)
     .join('\n');
   return compact({
-    photo: absoluteUrl(pack.image, baseUrl),
+    photo: imageUrl(pack.image, bases),
     nom: pack.name,
     prix: amount(pack.price),
     prix_promo: amount(pack.promoPrice),
