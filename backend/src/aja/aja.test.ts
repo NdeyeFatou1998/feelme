@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Command, toMinor } from '@ajaflow/sdk';
 import { buildOrderInput, normalizePhone, imageUrl } from './mapping';
-import { createSingleFlight, OrderStore, processCommandsOnce } from './decisions';
+import { CataloguePort, createSingleFlight, OrderStore, processCommandsOnce, ShopRefusal } from './decisions';
 import { OrderStatus, parseStatus } from './statuses';
 
 const baseOrder = {
@@ -109,7 +109,7 @@ test('libellés reconnus dans les deux sens', () => {
 
 /* ---------- Tâche des décisions ---------- */
 
-type Ack = { id: string; ok: boolean; status?: string; allowedNext?: string[]; reason?: string };
+type Ack = { id: string; ok: boolean; status?: string; allowedNext?: string[]; reason?: string; externalId?: string };
 
 function fakeAja(rows: Array<Record<string, unknown>>) {
   const acks: Ack[] = [];
@@ -119,8 +119,8 @@ function fakeAja(rows: Array<Record<string, unknown>>) {
       async pending() {
         return rows.map((r) => new Command(r));
       },
-      async ack(id: string, ok: boolean, status?: string, allowedNext?: string[], reason?: string) {
-        acks.push({ id, ok, status, allowedNext, reason });
+      async ack(id: string, ok: boolean, status?: string, allowedNext?: string[], reason?: string, externalId?: string) {
+        acks.push(externalId === undefined ? { id, ok, status, allowedNext, reason } : { id, ok, status, allowedNext, reason, externalId });
       },
     },
   };
@@ -142,6 +142,39 @@ function fakeStore(initial: Record<string, OrderStatus>, failOn?: string): Order
   return store;
 }
 
+/** Catalogue factice : retient les appels ; « inconnu » → refus, « panne » → erreur. */
+function fakeCatalogue() {
+  const calls: string[] = [];
+  let next = 50;
+  const cat: CataloguePort & { calls: string[] } = {
+    calls,
+    async create(values) {
+      calls.push(`create ${JSON.stringify(values)}`);
+      return values.type === 'Pack' ? `pack-${next++}` : `produit-${next++}`;
+    },
+    async update(ref, values) {
+      if (ref === 'produit-404') throw new ShopRefusal('Produit introuvable sur le site.');
+      if (ref === 'produit-500') throw new Error('base indisponible');
+      calls.push(`update ${ref} ${JSON.stringify(values)}`);
+    },
+    async setStock(ref, stock) {
+      calls.push(`stock ${ref} ${stock}`);
+    },
+    async remove(ref) {
+      calls.push(`delete ${ref}`);
+    },
+  };
+  return cat;
+}
+
+const cmd = (id: string, type: string, externalId: string | null, payload: Record<string, unknown>) => ({
+  id,
+  type,
+  ...(externalId ? { external_id: externalId } : {}),
+  payload,
+  created_at: '2026-11-21T10:00:00Z',
+});
+
 const transition = (id: string, externalId: string, to: string) => ({
   id,
   type: 'order.transition',
@@ -153,7 +186,7 @@ const transition = (id: string, externalId: string, to: string) => ({
 test('décision acceptée : appliquée puis ack avec les boutons suivants', async () => {
   const aja = fakeAja([transition('c1', '42', 'expédiée')]);
   const store = fakeStore({ '42': 'paid' });
-  await processCommandsOnce(aja, store);
+  await processCommandsOnce(aja, store, fakeCatalogue());
   assert.equal(store.db['42'], 'shipped');
   assert.deepEqual(aja.acks, [{ id: 'c1', ok: true, status: 'expédiée', allowedNext: ['livrée', 'annulée'], reason: undefined }]);
 });
@@ -161,7 +194,7 @@ test('décision acceptée : appliquée puis ack avec les boutons suivants', asyn
 test('décision refusée : passage interdit ou commande inconnue', async () => {
   const aja = fakeAja([transition('c1', '42', 'livrée'), transition('c2', '999', 'payée')]);
   const store = fakeStore({ '42': 'cancelled' });
-  await processCommandsOnce(aja, store);
+  await processCommandsOnce(aja, store, fakeCatalogue());
   assert.equal(store.db['42'], 'cancelled');
   assert.equal(aja.acks[0].ok, false);
   assert.match(aja.acks[0].reason ?? '', /annulée.*livrée/);
@@ -171,11 +204,11 @@ test('décision refusée : passage interdit ou commande inconnue', async () => {
 
 test('type non traité : refusé unsupported_type, la file avance', async () => {
   const aja = fakeAja([
-    { id: 'p1', type: 'product.update', external_id: '7', payload: {}, created_at: '2026-11-21T10:00:00Z' },
+    { id: 'p1', type: 'invoice.refund', external_id: '7', payload: {}, created_at: '2026-11-21T10:00:00Z' },
     transition('c2', '42', 'payée'),
   ]);
   const store = fakeStore({ '42': 'pending' });
-  await processCommandsOnce(aja, store);
+  await processCommandsOnce(aja, store, fakeCatalogue());
   assert.deepEqual(aja.acks[0], { id: 'p1', ok: false, status: undefined, allowedNext: [], reason: 'unsupported_type' });
   assert.equal(aja.acks[1].ok, true);
   assert.equal(store.db['42'], 'paid');
@@ -184,7 +217,7 @@ test('type non traité : refusé unsupported_type, la file avance', async () => 
 test('décision rejouée : sans effet, reconfirmée', async () => {
   const aja = fakeAja([transition('c1', '42', 'payée')]);
   const store = fakeStore({ '42': 'paid' });
-  await processCommandsOnce(aja, store);
+  await processCommandsOnce(aja, store, fakeCatalogue());
   assert.equal(store.writes, 0);
   assert.equal(aja.acks[0].ok, true);
   assert.equal(aja.acks[0].status, 'payée');
@@ -193,8 +226,52 @@ test('décision rejouée : sans effet, reconfirmée', async () => {
 test('panne chez nous : pas d’ack, la décision reviendra', async () => {
   const aja = fakeAja([transition('c1', '42', 'payée')]);
   const store = fakeStore({ '42': 'pending' }, '42');
-  await assert.rejects(processCommandsOnce(aja, store), /base indisponible/);
+  await assert.rejects(processCommandsOnce(aja, store, fakeCatalogue()), /base indisponible/);
   assert.equal(aja.acks.length, 0);
+});
+
+/* ---------- Décisions produit ---------- */
+
+test('product.probe : confirmée sans rien changer', async () => {
+  const aja = fakeAja([cmd('s1', 'product.probe', null, {})]);
+  const catalogue = fakeCatalogue();
+  await processCommandsOnce(aja, fakeStore({}), catalogue);
+  assert.deepEqual(aja.acks, [{ id: 's1', ok: true, status: undefined, allowedNext: undefined, reason: undefined }]);
+  assert.equal(catalogue.calls.length, 0);
+});
+
+test('product.create : ack avec la référence attribuée (produit ou pack)', async () => {
+  const aja = fakeAja([
+    cmd('c1', 'product.create', null, { schema_version: 1, values: { nom: 'Ambre', prix: 9000, type: 'Parfum' } }),
+    cmd('c2', 'product.create', null, { schema_version: 1, values: { nom: 'Coffret', prix: 20000, type: 'Pack' } }),
+  ]);
+  await processCommandsOnce(aja, fakeStore({}), fakeCatalogue());
+  assert.equal(aja.acks[0].ok, true);
+  assert.equal(aja.acks[0].externalId, 'produit-50');
+  assert.equal(aja.acks[1].externalId, 'pack-51');
+});
+
+test('product.update, product.stock, product.delete : appliqués puis confirmés', async () => {
+  const aja = fakeAja([
+    cmd('u1', 'product.update', 'produit-12', { external_id: 'produit-12', schema_version: 1, values: { prix: 16000 } }),
+    cmd('k1', 'product.stock', 'produit-12', { external_id: 'produit-12', stock: 4 }),
+    cmd('d1', 'product.delete', 'pack-3', { external_id: 'pack-3' }),
+  ]);
+  const catalogue = fakeCatalogue();
+  await processCommandsOnce(aja, fakeStore({}), catalogue);
+  assert.deepEqual(catalogue.calls, ['update produit-12 {"prix":16000}', 'stock produit-12 4', 'delete pack-3']);
+  assert.deepEqual(aja.acks.map((a) => [a.id, a.ok]), [['u1', true], ['k1', true], ['d1', true]]);
+});
+
+test('décision produit refusée avec motif ; panne = pas d’ack', async () => {
+  const refused = fakeAja([cmd('u1', 'product.update', 'produit-404', { values: { prix: 1 } })]);
+  await processCommandsOnce(refused, fakeStore({}), fakeCatalogue());
+  assert.equal(refused.acks[0].ok, false);
+  assert.equal(refused.acks[0].reason, 'Produit introuvable sur le site.');
+
+  const down = fakeAja([cmd('u2', 'product.update', 'produit-500', { values: { prix: 1 } })]);
+  await assert.rejects(processCommandsOnce(down, fakeStore({}), fakeCatalogue()), /base indisponible/);
+  assert.equal(down.acks.length, 0);
 });
 
 test('un seul relevé à la fois', async () => {
