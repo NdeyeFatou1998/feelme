@@ -56,14 +56,14 @@ const MANUAL_EMAIL = 'non-fourni@manual.fm';
 export function isVisible(o: Pick<OrderAttributes, 'source' | 'status' | 'paymentMethod'>): boolean {
   if (o.source === 'manual') return true;
   if (o.status === 'paid' || o.status === 'shipped' || o.status === 'delivered') return true;
-  return o.status === 'cancelled' && !!o.paymentMethod;
+  return o.status === 'cancelled' && !!o.paymentMethod?.trim();
 }
 
 const VISIBLE: WhereOptions = {
   [Op.or]: [
     { source: 'manual' },
     { status: { [Op.in]: ['paid', 'shipped', 'delivered'] } },
-    { status: 'cancelled', paymentMethod: { [Op.ne]: null } },
+    { status: 'cancelled', paymentMethod: { [Op.and]: [{ [Op.ne]: null }, { [Op.notIn]: ['', ' '] }] } },
   ],
 };
 
@@ -123,20 +123,36 @@ export function toAjaOrder(o: OrderAttributes, bases: ImageBases): AjaOrder {
 
 const plain = (row: Order) => row.get({ plain: true }) as OrderAttributes;
 
+/** « 1731000000000_42 » → { t, id } ; tout autre texte → première page. */
+export function parseOrderCursor(cursor: string | null): { t: number; id: number } | null {
+  const m = /^(\d+)_(\d+)$/.exec(cursor ?? '');
+  return m ? { t: Number(m[1]), id: Number(m[2]) } : null;
+}
+
 export function ordersAdapter(bases: () => ImageBases): OrdersAdapter {
   return {
     async list({ since, cursor, limit }) {
-      const offset = Number(cursor ?? 0) || 0;
+      /* Curseur « après (updatedAt, id) » : une commande modifiée pendant la lecture ne fait sauter aucune autre. */
+      const after = parseOrderCursor(cursor);
       const rows = await Order.findAll({
-        where: { [Op.and]: [{ updatedAt: { [Op.gte]: new Date(since) } }, VISIBLE] },
+        where: {
+          [Op.and]: [
+            { updatedAt: { [Op.gte]: new Date(since) } },
+            VISIBLE,
+            ...(after
+              ? [{ [Op.or]: [{ updatedAt: { [Op.gt]: new Date(after.t) } }, { updatedAt: new Date(after.t), id: { [Op.gt]: after.id } }] }]
+              : []),
+          ],
+        },
         order: [['updatedAt', 'ASC'], ['id', 'ASC']],
-        offset,
         limit,
       });
       const b = bases();
+      const items = rows.map((r) => plain(r));
+      const last = items[items.length - 1];
       return {
-        items: rows.map((r) => toAjaOrder(plain(r), b)),
-        next: rows.length === limit ? String(offset + limit) : null,
+        items: items.map((o) => toAjaOrder(o, b)),
+        next: items.length === limit && last ? `${new Date(last.updatedAt as Date).getTime()}_${last.id}` : null,
       };
     },
 

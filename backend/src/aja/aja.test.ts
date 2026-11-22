@@ -1,9 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Refusal } from '@ajaflow/sdk';
-import { imageUrl, isVisible, parseStatus, toAjaOrder } from './orders';
+import { Op } from 'sequelize';
+import { imageUrl, isVisible, parseOrderCursor, parseStatus, toAjaOrder } from './orders';
 import {
   PRODUCT_FORM,
+  afterWhere,
+  parseProductCursor,
   ownImagePath,
   packContentsText,
   packToAja,
@@ -54,6 +57,8 @@ test('commandes montrées : admin, ou site payée', () => {
   assert.equal(isVisible({ source: 'site', status: 'paid', paymentMethod: 'Wave' }), true);
   assert.equal(isVisible({ source: 'site', status: 'cancelled', paymentMethod: null }), false);
   assert.equal(isVisible({ source: 'site', status: 'cancelled', paymentMethod: 'Wave' }), true);
+  assert.equal(isVisible({ source: 'site', status: 'cancelled', paymentMethod: '' }), false);
+  assert.equal(isVisible({ source: 'site', status: 'cancelled', paymentMethod: ' ' }), false);
 });
 
 test('commande → AJA : statuts en français, image https, email factice retiré', () => {
@@ -154,4 +159,23 @@ test('contenu du pack : nom actuel, ancien nom ou refus', () => {
   assert.throws(() => parsePackContents('Rose', products), /introuvable/);
   assert.throws(() => parsePackContents('', products), Refusal);
   assert.equal(packContentsText([{ productId: 9, quantity: 2 }]), '2 × produit 9');
+});
+
+test('curseurs : « après (updatedAt, id) », texte inconnu = première page', () => {
+  assert.deepEqual(parseOrderCursor('1731000000000_42'), { t: 1731000000000, id: 42 });
+  assert.equal(parseOrderCursor(null), null);
+  assert.equal(parseOrderCursor('100'), null);
+  assert.deepEqual(parseProductCursor('1731000000000_pack_3'), { t: 1731000000000, kind: 'pack', id: 3 });
+  assert.equal(parseProductCursor('1731000000000_bougie_3'), null);
+});
+
+test('catalogue : après un pack à l’instant T, les parfums de T suivent ; après un parfum, les packs de T sont passés', () => {
+  const t = 1731000000000;
+  const T = new Date(t);
+  assert.deepEqual(afterWhere('product', null), {});
+  assert.deepEqual(afterWhere('product', { t, kind: 'pack', id: 9 }), { updatedAt: { [Op.gte]: T } });
+  assert.deepEqual(afterWhere('pack', { t, kind: 'product', id: 1 }), { updatedAt: { [Op.gt]: T } });
+  assert.deepEqual(afterWhere('pack', { t, kind: 'pack', id: 4 }), {
+    [Op.or]: [{ updatedAt: { [Op.gt]: T } }, { updatedAt: T, id: { [Op.gt]: 4 } }],
+  });
 });

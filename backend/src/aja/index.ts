@@ -14,6 +14,8 @@ import { Aja } from '@ajaflow/sdk';
 import { isVisible, ordersAdapter, type ImageBases } from './orders';
 import { packRef, productRef, productsAdapter } from './products';
 import type { OrderAttributes } from '../models/Order';
+import type { PackAttributes } from '../models/Pack';
+import { Pack, Product } from '../models';
 
 function imageBases(): ImageBases {
   const railway = process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null;
@@ -28,7 +30,7 @@ function create(): Aja | null {
   try {
     const aja = new Aja({ currency: 'XOF', timezone: 'Africa/Dakar' });
     aja.ordersAdapter(ordersAdapter(imageBases));
-    aja.productsAdapter(productsAdapter(imageBases));
+    aja.productsAdapter(productsAdapter({ bases: imageBases, onProductRenamed: (id) => notify(packsWithProduct(id)) }));
     return aja;
   } catch (error) {
     // Clé absente, abîmée ou d'un ancien format : le site tourne, AJA reste éteint.
@@ -50,19 +52,78 @@ export function startAja(): void {
   aja?.start();
 }
 
-/** Après chaque enregistrement d'une commande : AJA l'apprend tout de suite. */
-export function orderChanged(order: Pick<OrderAttributes, 'id' | 'source' | 'status' | 'paymentMethod'> | null | undefined): void {
-  if (!aja || !order) return;
-  const o = typeof (order as { get?: unknown }).get === 'function'
-    ? ((order as unknown as { get: (o: { plain: true }) => OrderAttributes }).get({ plain: true }))
-    : order;
-  if (isVisible(o)) aja.changed('orders', o.id);
+/**
+ * Le SDK n'envoie rien pour un module éteint (ou avant le branchement), mais
+ * garde l'événement en file et relance l'échange sans pause tant qu'il y est.
+ * On ne le prévient donc que si le module est actif ; sinon la vérification
+ * régulière du SDK (updatedAt) rattrape le changement une fois le module allumé.
+ */
+function live(resource: 'commerce.orders' | 'commerce.products'): boolean {
+  if (!aja) return false;
+  const state = aja.status();
+  return state.attached && state.modules[resource] !== 'disabled';
+}
+
+type OrderLike = Pick<OrderAttributes, 'id' | 'source' | 'status' | 'paymentMethod'>;
+
+function plainOrder(order: OrderLike): OrderLike {
+  const get = (order as { get?: unknown }).get;
+  return typeof get === 'function' ? (order as unknown as { get: (o: { plain: true }) => OrderLike }).get({ plain: true }) : order;
+}
+
+/** Vrai si AJA doit connaître cette commande (à lire AVANT de la modifier). */
+export function orderShown(order: OrderLike | null | undefined): boolean {
+  return !!order && isVisible(plainOrder(order));
+}
+
+/**
+ * Après chaque enregistrement d'une commande. `wasShown` : la commande était
+ * dans AJA avant le changement ; si elle n'y a plus sa place, le SDK lit
+ * get() → null et la retire d'AJA.
+ */
+export function orderChanged(order: OrderLike | null | undefined, wasShown = false): void {
+  if (!order || !live('commerce.orders')) return;
+  const o = plainOrder(order);
+  if (wasShown || isVisible(o)) aja!.changed('orders', o.id);
 }
 
 export function productChanged(id: number | string): void {
-  aja?.changed('products', productRef(Number(id)));
+  if (live('commerce.products')) aja!.changed('products', productRef(Number(id)));
 }
 
 export function packChanged(id: number | string): void {
-  aja?.changed('products', packRef(Number(id)));
+  if (live('commerce.products')) aja!.changed('products', packRef(Number(id)));
+}
+
+/** Packs qui contiennent ce parfum : leur « Contenu du pack » affiche son nom. */
+export async function packsWithProduct(productId: number | string): Promise<void> {
+  if (!live('commerce.products')) return;
+  const packs = await Pack.findAll();
+  for (const pack of packs) {
+    const { id, items } = pack.get({ plain: true }) as PackAttributes;
+    if ((items ?? []).some((i) => Number(i.productId) === Number(productId))) packChanged(id);
+  }
+}
+
+/** Une catégorie renommée ou supprimée : ses parfums et ses packs affichent son nom. */
+export async function categoryChanged(categoryId: number | string, ids?: { products: number[]; packs: number[] }): Promise<void> {
+  if (!live('commerce.products')) return;
+  const found = ids ?? (await catalogueInCategory(categoryId));
+  found.products.forEach(productChanged);
+  found.packs.forEach(packChanged);
+}
+
+/** À lire avant de supprimer une catégorie. */
+export async function catalogueInCategory(categoryId: number | string): Promise<{ products: number[]; packs: number[] }> {
+  const where = { categoryId: Number(categoryId) };
+  const [products, packs] = await Promise.all([
+    Product.findAll({ where, attributes: ['id'] }),
+    Pack.findAll({ where, attributes: ['id'] }),
+  ]);
+  return { products: products.map((p) => Number(p.get('id'))), packs: packs.map((p) => Number(p.get('id'))) };
+}
+
+/** Pour les routes : ne jamais faire échouer l'admin à cause d'AJA. */
+export function notify(work: Promise<unknown>): void {
+  work.catch((error) => console.error('[aja] notification impossible :', (error as Error).message));
 }

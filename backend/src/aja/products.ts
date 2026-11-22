@@ -12,9 +12,11 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { Op } from 'sequelize';
+import { Op, type WhereOptions } from 'sequelize';
 import { Refusal, type Product as AjaProduct, type ProductForm, type ProductsAdapter } from '@ajaflow/sdk';
 import { Category, Pack, Product } from '../models';
+import sequelize from '../db';
+import { AjaAction, ensureAjaActions } from './actions';
 import type { PackAttributes, PackItem } from '../models/Pack';
 import type { ProductAttributes } from '../models/Product';
 import { imageUrl, type ImageBases } from './orders';
@@ -276,9 +278,35 @@ export async function downloadImage(url: string): Promise<string> {
 
 type Row = { kind: 'product'; data: ProductAttributes } | { kind: 'pack'; data: PackAttributes };
 
-export function productsAdapter(bases: () => ImageBases, download = downloadImage): ProductsAdapter {
-  /** Création rejouée avec le même actionId : on rend le même article, pas un doublon. */
-  const created = new Map<string, string>();
+export type ProductsDeps = {
+  bases: () => ImageBases;
+  /** Un parfum a changé de nom depuis AJA : les packs qui le contiennent changent de « Contenu du pack ». */
+  onProductRenamed?: (productId: number) => void;
+  download?: (url: string) => Promise<string>;
+};
+
+/** Ordre de la liste : (updatedAt, type, id), « pack » avant « produit ». */
+type Key = { t: number; kind: 'pack' | 'product'; id: number };
+
+export function parseProductCursor(cursor: string | null): Key | null {
+  const m = /^(\d+)_(pack|product)_(\d+)$/.exec(cursor ?? '');
+  return m ? { t: Number(m[1]), kind: m[2] as Key['kind'], id: Number(m[3]) } : null;
+}
+
+const KIND_ORDER = { pack: 0, product: 1 } as const;
+
+/** Lignes d'une table de type `kind` situées strictement après `after` dans l'ordre (updatedAt, type, id). */
+export function afterWhere(kind: Key['kind'], after: Key | null): WhereOptions {
+  if (!after) return {};
+  const t = new Date(after.t);
+  if (KIND_ORDER[kind] > KIND_ORDER[after.kind]) return { updatedAt: { [Op.gte]: t } };
+  if (KIND_ORDER[kind] < KIND_ORDER[after.kind]) return { updatedAt: { [Op.gt]: t } };
+  return { [Op.or]: [{ updatedAt: { [Op.gt]: t } }, { updatedAt: t, id: { [Op.gt]: after.id } }] };
+}
+
+export function productsAdapter(deps: ProductsDeps): ProductsAdapter {
+  const bases = deps.bases;
+  const download = deps.download ?? downloadImage;
 
   const categories = async () =>
     (await Category.findAll({ order: [['id', 'ASC']] })).map((c) => c.get({ plain: true }) as { id: number; name: string });
@@ -339,11 +367,12 @@ export function productsAdapter(bases: () => ImageBases, download = downloadImag
 
     /** Parfums et packs mélangés, du plus ancien changement au plus récent. */
     async list({ since, cursor, limit }) {
-      const offset = Number(cursor ?? 0) || 0;
-      const where = { updatedAt: { [Op.gte]: new Date(since) } };
+      /* Curseur « après (updatedAt, type, id) » : un article modifié pendant la lecture ne fait sauter aucun autre. */
+      const after = parseProductCursor(cursor);
+      const from = { updatedAt: { [Op.gte]: new Date(since) } };
       const [products, packs] = await Promise.all([
-        Product.findAll({ where, order: [['updatedAt', 'ASC'], ['id', 'ASC']], limit: offset + limit }),
-        Pack.findAll({ where, order: [['updatedAt', 'ASC'], ['id', 'ASC']], limit: offset + limit }),
+        Product.findAll({ where: { [Op.and]: [from, afterWhere('product', after)] }, order: [['updatedAt', 'ASC'], ['id', 'ASC']], limit }),
+        Pack.findAll({ where: { [Op.and]: [from, afterWhere('pack', after)] }, order: [['updatedAt', 'ASC'], ['id', 'ASC']], limit }),
       ]);
       const rows: Row[] = [
         ...products.map((r) => ({ kind: 'product' as const, data: r.get({ plain: true }) as ProductAttributes })),
@@ -351,14 +380,15 @@ export function productsAdapter(bases: () => ImageBases, download = downloadImag
       ].sort(
         (a, b) =>
           new Date(a.data.updatedAt as Date).getTime() - new Date(b.data.updatedAt as Date).getTime() ||
-          a.kind.localeCompare(b.kind) ||
+          KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
           a.data.id - b.data.id
       );
-      const page = rows.slice(offset, offset + limit);
+      const page = rows.slice(0, limit);
+      const last = page[page.length - 1];
       const ctx = await context();
       return {
         items: page.map((r) => toAja(r, ctx)),
-        next: rows.length > offset + limit || page.length === limit ? String(offset + limit) : null,
+        next: page.length === limit && last ? `${new Date(last.data.updatedAt as Date).getTime()}_${last.kind}_${last.data.id}` : null,
       };
     },
 
@@ -367,8 +397,13 @@ export function productsAdapter(bases: () => ImageBases, download = downloadImag
     },
 
     async create({ values, actionId }) {
-      const already = created.get(actionId);
-      if (already) return (await read(already)) ?? { id: already };
+      /* Création rejouée avec le même actionId (même après un redémarrage) : on rend le même article. */
+      await ensureAjaActions();
+      const done = await AjaAction.findByPk(actionId);
+      if (done) {
+        const ref = String(done.get('ref'));
+        return (await read(ref)) ?? { id: ref };
+      }
       const f = readValues(values);
       if (!f.name) throw new Refusal('Le nom est obligatoire.');
       if (f.price === undefined) throw new Refusal('Le prix est obligatoire.');
@@ -376,7 +411,7 @@ export function productsAdapter(bases: () => ImageBases, download = downloadImag
       let ref: string;
       if (f.kind === 'pack') {
         const items = parsePackContents(f.packContents, await productNames());
-        const pack = await Pack.create({
+        const fields = {
           name: f.name,
           slug: await uniqueSlug(Pack, f.name),
           description: f.description ?? null,
@@ -386,11 +421,16 @@ export function productsAdapter(bases: () => ImageBases, download = downloadImag
           items,
           categoryId: f.category ? pickCategory(f.category, await categories()) : null,
           isActive: f.active ?? true,
+        };
+        ref = await sequelize.transaction(async (transaction) => {
+          const pack = await Pack.create(fields, { transaction });
+          const made = packRef(Number(pack.get('id')));
+          await AjaAction.create({ actionId, ref: made }, { transaction });
+          return made;
         });
-        ref = packRef(Number(pack.get('id')));
       } else {
         const categoryId = pickCategory(f.category, await categories());
-        const product = await Product.create({
+        const fields = {
           name: f.name,
           slug: await uniqueSlug(Product, f.name),
           description: f.description ?? null,
@@ -401,10 +441,14 @@ export function productsAdapter(bases: () => ImageBases, download = downloadImag
           volume: f.volume ?? null,
           stock: f.stock ?? 100,
           isActive: f.active ?? true,
+        };
+        ref = await sequelize.transaction(async (transaction) => {
+          const product = await Product.create(fields, { transaction });
+          const made = productRef(Number(product.get('id')));
+          await AjaAction.create({ actionId, ref: made }, { transaction });
+          return made;
         });
-        ref = productRef(Number(product.get('id')));
       }
-      created.set(actionId, ref);
       return (await read(ref)) ?? { id: ref };
     },
 
@@ -456,7 +500,9 @@ export function productsAdapter(bases: () => ImageBases, download = downloadImag
         if (f.volume !== undefined) changes.volume = f.volume;
         if (f.category !== undefined) changes.categoryId = pickCategory(f.category, await categories());
         if (f.photo !== undefined) changes.image = await image(f.photo);
+        const renamed = changes.name !== undefined && changes.name !== product.get('name');
         if (Object.keys(changes).length) await product.update(changes);
+        if (renamed) deps.onProductRenamed?.(ref.id);
       }
       return (await read(id)) ?? undefined;
     },
