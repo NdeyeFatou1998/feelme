@@ -3,6 +3,7 @@ import { Order, syncDatabase } from '../models';
 import { verifyIPNSha256 } from '../paytech';
 import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../email';
 import { orderChanged } from '../aja';
+import { updateStock } from '../stock';
 
 const router = Router();
 
@@ -56,6 +57,7 @@ router.post('/ipn', async (req: Request, res: Response) => {
       });
       console.log(`[IPN] Commande ${ref_command} mise à jour → paid (${payment_method})`);
       orderChanged(order);
+      updateStock(order.get('id') as number);
 
       const orderJson = order.toJSON();
       try {
@@ -72,6 +74,7 @@ router.post('/ipn', async (req: Request, res: Response) => {
       if (order) {
         await order.update({ status: 'cancelled' });
         orderChanged(order);
+        updateStock(order.get('id') as number);
         console.log(`[IPN] Commande ${ref_command} annulée`);
       }
     }

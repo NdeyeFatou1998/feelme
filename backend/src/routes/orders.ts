@@ -5,6 +5,7 @@ import { createPaymentRequest } from '../paytech';
 import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../email';
 import { generateInvoicePDF, CompanyInfo, DEFAULT_COMPANY } from '../invoice';
 import { orderChanged, orderShown } from '../aja';
+import { releaseBeforeDelete, updateStock } from '../stock';
 
 const router = Router();
 
@@ -148,6 +149,7 @@ router.post('/manual', async (req: Request, res: Response) => {
 
     console.log(`[ORDERS/MANUAL] Commande manuelle créée : ${ref} par admin`);
     orderChanged(order);
+    updateStock(order.get('id') as number);
 
     res.status(201).json({ success: true, order });
   } catch (error) {
@@ -198,6 +200,7 @@ router.post('/confirm', async (req: Request, res: Response) => {
       await order.reload();
       const updatedOrder = order.toJSON();
       orderChanged(order);
+      updateStock(updatedOrder.id);
 
       try {
         await Promise.all([
@@ -359,6 +362,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     await order.update(updateData);
     await order.reload();
     orderChanged(order, wasShown);
+    updateStock(id);
 
     console.log(`[API/ORDERS/ID] Commande ${id} modifiée par admin ${adminAuth.email}`);
 
@@ -393,6 +397,9 @@ router.delete('/:id', async (req: Request, res: Response) => {
     const orderRef = (order as any).ref;
     const wasShown = orderShown(order);
     const deleted = order.get({ plain: true });
+    await releaseBeforeDelete(deleted).catch((error) =>
+      console.error(`[STOCK] commande ${id} : stock non rendu avant suppression :`, (error as Error).message)
+    );
     await order.destroy();
     orderChanged(deleted, wasShown);
 

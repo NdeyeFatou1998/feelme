@@ -21,6 +21,7 @@ import { packRef, productRef, productsAdapter } from './products';
 import type { OrderAttributes } from '../models/Order';
 import type { PackAttributes } from '../models/Pack';
 import { Pack, Product } from '../models';
+import { onStockChanged } from '../stock';
 
 function imageBases(): ImageBases {
   const railway = process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null;
@@ -45,6 +46,7 @@ function create(): Aja | null {
 }
 
 const aja = create();
+onStockChanged((productId) => productChanged(productId));
 const door = aja?.door();
 
 /** La porte à laquelle AJA frappe (GET, publique). */

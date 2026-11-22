@@ -461,6 +461,9 @@ function ProductsTab({ products, categories, authFetch, onRefresh }: {
     name: '', description: '', price: '', promoPrice: '',
     categoryId: '', volume: '', stock: '100', image: '',
   });
+  /* Stock affiché à l'ouverture : renvoyé seulement s'il a été modifié, pour ne pas
+     écraser les ventes (ou AJA) enregistrées entre-temps. */
+  const [loadedStock, setLoadedStock] = useState<string | null>(null);
 
   /* --- Upload image vers le serveur --- */
   const [uploading, setUploading] = useState(false);
@@ -499,12 +502,14 @@ function ProductsTab({ products, categories, authFetch, onRefresh }: {
       stock: String(product.stock),
       image: product.image || '',
     });
+    setLoadedStock(String(product.stock));
     setShowForm(true);
   };
 
   /* --- Réinitialiser le formulaire --- */
   const resetForm = () => {
     setEditingId(null);
+    setLoadedStock(null);
     setForm({ name: '', description: '', price: '', promoPrice: '', categoryId: '', volume: '', stock: '100', image: '' });
     setShowForm(false);
   };
@@ -516,7 +521,9 @@ function ProductsTab({ products, categories, authFetch, onRefresh }: {
     try {
       const url = editingId ? `/api/products/${editingId}` : '/api/products';
       const method = editingId ? 'PUT' : 'POST';
-      await authFetch(url, { method, body: JSON.stringify(form) });
+      const { stock, ...rest } = form;
+      const body = editingId && stock === loadedStock ? rest : form;
+      await authFetch(url, { method, body: JSON.stringify(body) });
       resetForm();
       onRefresh();
     } catch (error) {

@@ -198,6 +198,46 @@ export async function sendAdminNotificationEmail(order: OrderAttributes): Promis
   }
 }
 
+/** Info à l'admin : une commande payée a mis des parfums en rupture (la commande, elle, est acceptée). */
+export async function sendStockAlertEmail(
+  order: Pick<OrderAttributes, 'ref' | 'firstName' | 'lastName'>,
+  products: Array<{ name: string; stock: number; quantity: number }>
+): Promise<void> {
+  try {
+    const co = await loadCompanyInfo();
+    const frontUrl = process.env.FRONT_URL || process.env.APP_URL || 'https://feel-me.store';
+    const esc = (s: string) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+    const rows = products
+      .map((p) => {
+        const state = p.stock < 0 ? `il en manque <strong>${-p.stock}</strong>` : 'stock épuisé';
+        return `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee;">${esc(p.name)}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${p.quantity}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;"><strong>${p.stock}</strong></td>
+          <td style="padding:6px 10px;border-bottom:1px solid #eee;">${state}</td></tr>`;
+      })
+      .join('');
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || `${co.companyName} <${co.companyEmail}>`,
+      to: process.env.SMTP_USER || co.companyEmail,
+      subject: `Rupture de stock - commande ${order.ref}`,
+      html: `
+        <div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:620px;margin:0 auto;">
+          <h2 style="color:#c9a84c;margin:20px 0 10px;">Rupture de stock</h2>
+          <p style="font-size:14px;color:#555;">La commande <strong>${esc(order.ref)}</strong> de ${esc(order.firstName)} ${esc(order.lastName)} est payée et acceptée, mais ces parfums sont maintenant en rupture :</p>
+          <table style="border-collapse:collapse;font-size:14px;color:#333;width:100%;">
+            <tr style="background:#faf6eb;"><th style="padding:6px 10px;text-align:left;">Parfum</th><th style="padding:6px 10px;">Commandé</th><th style="padding:6px 10px;">Stock</th><th style="padding:6px 10px;text-align:left;"></th></tr>
+            ${rows}
+          </table>
+          <p style="font-size:14px;color:#555;margin-top:16px;">Pensez à réapprovisionner, puis à corriger le stock dans l'admin ou dans AJA.</p>
+          <p style="font-size:14px;margin:12px 0;"><a href="${frontUrl}/admin" style="color:#c9a84c;font-weight:600;">Ouvrir le Dashboard Admin</a></p>
+        </div>`,
+    });
+    console.log(`[EMAIL] Alerte rupture de stock envoyée (${order.ref}).`);
+  } catch (error) {
+    console.error('[EMAIL] Erreur envoi alerte rupture:', error);
+  }
+}
+
 export async function sendNewAdminEmail(email: string, password: string): Promise<void> {
   try {
     const co = await loadCompanyInfo();
