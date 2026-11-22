@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Refusal } from '@ajaflow/sdk';
 import { Op } from 'sequelize';
-import { imageUrl, isVisible, parseOrderCursor, parseStatus, toAjaOrder } from './orders';
+import { imageUrl, isVisible, parseOrderCursor, parseStatus, toAjaOrder, toAjaPayment } from './orders';
 import {
   PRODUCT_FORM,
   afterWhere,
@@ -76,6 +76,27 @@ test('commande → AJA : statuts en français, image https, email factice retir�
     extras: { image_url: 'https://www.feel-me.store/images/pack.jpeg', type: 'Pack' },
   });
   assert.equal(o.extras?.adresse_livraison, undefined);
+});
+
+test('paiement : ce que feel-me sait, rien de plus', () => {
+  const pay = (paymentMethod: string | null, paymentToken: string | null = null) => toAjaPayment({ paymentMethod, paymentToken });
+  assert.deepEqual(pay('Wave', 'tok_123'), { label: 'Wave', method: 'mobile_money', provider: 'Wave', reference: 'tok_123' });
+  assert.deepEqual(pay('Orange Money'), { label: 'Orange Money', method: 'mobile_money', provider: 'Orange Money' });
+  assert.deepEqual(pay('Carte Bancaire'), { label: 'Carte bancaire', method: 'card' });
+  assert.deepEqual(pay('Virement bancaire'), { label: 'Virement bancaire', method: 'bank_transfer' });
+  assert.deepEqual(pay('PayTech', 'tok_9'), { label: 'Paiement en ligne', provider: 'PayTech', reference: 'tok_9' });
+  assert.deepEqual(pay('Especes'), { label: 'Espèces' });
+  assert.deepEqual(pay('Espèces'), { label: 'Espèces' });
+  assert.deepEqual(pay('En boutique'), { label: 'En boutique' });
+  assert.deepEqual(pay(null, 'tok_1'), { provider: 'PayTech', reference: 'tok_1' });
+  assert.equal(pay(null), null);
+  assert.equal(pay('  '), null);
+});
+
+test('commande → AJA : paiement et date de la facture', () => {
+  const o = toAjaOrder(order({ paymentMethod: 'Wave', paymentToken: 'tok_5' }), bases);
+  assert.deepEqual(o.payment, { label: 'Wave', method: 'mobile_money', provider: 'Wave', reference: 'tok_5' });
+  assert.equal(o.invoiceAt, when);
 });
 
 test('commande sans article : une ligne au total', () => {

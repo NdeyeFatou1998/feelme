@@ -18,6 +18,7 @@
 
 import PDFDocument from 'pdfkit';
 import { OrderAttributes, OrderItem } from './models/Order';
+import Settings from './models/Settings';
 
 /**
  * Infos entreprise passées à la génération PDF.
@@ -48,6 +49,26 @@ export const DEFAULT_COMPANY: CompanyInfo = {
   companyAddress: 'Dakar, Sénégal',
   companyWebsite: 'www.feel-me.store',
 };
+
+/** Les infos entreprise de la table Settings (valeurs par défaut si absentes). */
+export async function loadCompanyInfo(): Promise<CompanyInfo> {
+  try {
+    const settings = await Settings.findByPk(1);
+    if (settings) {
+      const s = settings.toJSON();
+      return {
+        companyName: s.companyName || DEFAULT_COMPANY.companyName,
+        companyEmail: s.companyEmail || DEFAULT_COMPANY.companyEmail,
+        companyPhone: s.companyPhone || DEFAULT_COMPANY.companyPhone,
+        companyAddress: s.companyAddress || DEFAULT_COMPANY.companyAddress,
+        companyWebsite: s.companyWebsite || DEFAULT_COMPANY.companyWebsite,
+      };
+    }
+  } catch (e) {
+    console.warn('[INVOICE] Settings non chargées, valeurs par défaut');
+  }
+  return DEFAULT_COMPANY;
+}
 
 /**
  * Génère un Buffer PDF contenant la facture d'une commande.
