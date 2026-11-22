@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Pack, syncDatabase } from '../models';
 import { authenticateAdmin } from '../auth';
-import { removePack, sendPack } from '../aja';
 
 const router = Router();
 
@@ -63,7 +62,6 @@ router.post('/', async (req: Request, res: Response) => {
       isActive: true,
     });
 
-    void sendPack(pack);
     res.status(201).json({ success: true, pack });
   } catch (error) {
     console.error('[API/PACKS] POST error:', error);
@@ -112,7 +110,6 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (body.isActive !== undefined) updateData.isActive = body.isActive;
 
     await pack.update(updateData);
-    void sendPack(pack);
     res.json({ success: true, pack });
   } catch (error) {
     console.error('[API/PACKS] PUT error:', error);
@@ -138,7 +135,6 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
 
     await pack.destroy();
-    void removePack(id);
     res.json({ success: true, message: 'Pack supprimé' });
   } catch (error) {
     console.error('[API/PACKS] DELETE error:', error);
