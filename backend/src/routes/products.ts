@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Product, Category, syncDatabase } from '../models';
 import { authenticateAdmin } from '../auth';
+import { notify, packsWithProduct, productChanged } from '../aja';
 
 const router = Router();
 
@@ -65,6 +66,7 @@ router.post('/', async (req: Request, res: Response) => {
       isActive: true,
     });
 
+    productChanged(product.get('id') as number);
     res.status(201).json({ success: true, product });
   } catch (error) {
     console.error('[API/PRODUCTS] POST error:', error);
@@ -136,6 +138,8 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (body.isActive !== undefined) updateData.isActive = body.isActive;
 
     await product.update(updateData);
+    productChanged(id);
+    if (body.name !== undefined) notify(packsWithProduct(id));
     res.json({ success: true, product });
   } catch (error) {
     console.error('[API/PRODUCTS] PUT error:', error);
@@ -161,6 +165,8 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
 
     await product.destroy();
+    productChanged(id);
+    notify(packsWithProduct(id));
     res.json({ success: true, message: 'Produit supprimé' });
   } catch (error) {
     console.error('[API/PRODUCTS] DELETE error:', error);
