@@ -2,6 +2,11 @@
  * ============================================
  * FEEL ME - AJA (@ajaflow/sdk 2)
  *
+ * Suit https://www.ajaflow.com/documentation/node : une instance Aja,
+ * les adaptateurs commandes et produits, la porte GET /aja, start()
+ * au démarrage et changed() après chaque enregistrement. Un module
+ * éteint côté AJA est ignoré par le SDK lui-même (2.0.1).
+ *
  * La clé AJA_KEY (créée par `npx @ajaflow/sdk connect <CODE>`)
  * vit uniquement dans l'environnement du serveur de production.
  * Sans clé, le site fonctionne exactement comme avant : rien n'est
@@ -52,18 +57,6 @@ export function startAja(): void {
   aja?.start();
 }
 
-/**
- * Le SDK n'envoie rien pour un module éteint (ou avant le branchement), mais
- * garde l'événement en file et relance l'échange sans pause tant qu'il y est.
- * On ne le prévient donc que si le module est actif ; sinon la vérification
- * régulière du SDK (updatedAt) rattrape le changement une fois le module allumé.
- */
-function live(resource: 'commerce.orders' | 'commerce.products'): boolean {
-  if (!aja) return false;
-  const state = aja.status();
-  return state.attached && state.modules[resource] !== 'disabled';
-}
-
 type OrderLike = Pick<OrderAttributes, 'id' | 'source' | 'status' | 'paymentMethod'>;
 
 function plainOrder(order: OrderLike): OrderLike {
@@ -82,22 +75,22 @@ export function orderShown(order: OrderLike | null | undefined): boolean {
  * get() → null et la retire d'AJA.
  */
 export function orderChanged(order: OrderLike | null | undefined, wasShown = false): void {
-  if (!order || !live('commerce.orders')) return;
+  if (!aja || !order) return;
   const o = plainOrder(order);
-  if (wasShown || isVisible(o)) aja!.changed('orders', o.id);
+  if (wasShown || isVisible(o)) aja.changed('orders', o.id);
 }
 
 export function productChanged(id: number | string): void {
-  if (live('commerce.products')) aja!.changed('products', productRef(Number(id)));
+  aja?.changed('products', productRef(Number(id)));
 }
 
 export function packChanged(id: number | string): void {
-  if (live('commerce.products')) aja!.changed('products', packRef(Number(id)));
+  aja?.changed('products', packRef(Number(id)));
 }
 
 /** Packs qui contiennent ce parfum : leur « Contenu du pack » affiche son nom. */
 export async function packsWithProduct(productId: number | string): Promise<void> {
-  if (!live('commerce.products')) return;
+  if (!aja) return;
   const packs = await Pack.findAll();
   for (const pack of packs) {
     const { id, items } = pack.get({ plain: true }) as PackAttributes;
@@ -107,7 +100,7 @@ export async function packsWithProduct(productId: number | string): Promise<void
 
 /** Une catégorie renommée ou supprimée : ses parfums et ses packs affichent son nom. */
 export async function categoryChanged(categoryId: number | string, ids?: { products: number[]; packs: number[] }): Promise<void> {
-  if (!live('commerce.products')) return;
+  if (!aja) return;
   const found = ids ?? (await catalogueInCategory(categoryId));
   found.products.forEach(productChanged);
   found.packs.forEach(packChanged);
