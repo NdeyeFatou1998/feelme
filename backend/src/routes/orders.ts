@@ -4,7 +4,7 @@ import { authenticateAdmin } from '../auth';
 import { createPaymentRequest } from '../paytech';
 import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../email';
 import { generateInvoicePDF, CompanyInfo, DEFAULT_COMPANY } from '../invoice';
-import { sendDeleted, sendOrder, sendStatus } from '../aja';
+import { orderChanged, orderShown } from '../aja';
 
 const router = Router();
 
@@ -147,7 +147,7 @@ router.post('/manual', async (req: Request, res: Response) => {
     });
 
     console.log(`[ORDERS/MANUAL] Commande manuelle créée : ${ref} par admin`);
-    void sendOrder(order);
+    orderChanged(order);
 
     res.status(201).json({ success: true, order });
   } catch (error) {
@@ -197,7 +197,7 @@ router.post('/confirm', async (req: Request, res: Response) => {
 
       await order.reload();
       const updatedOrder = order.toJSON();
-      void sendOrder(updatedOrder);
+      orderChanged(order);
 
       try {
         await Promise.all([
@@ -355,13 +355,10 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (body.remaining !== undefined) updateData.remaining = body.remaining;
     if (body.items !== undefined) updateData.items = body.items;
 
+    const wasShown = orderShown(order);
     await order.update(updateData);
     await order.reload();
-
-    /* AJA : un simple changement de statut → update ; sinon la commande entière. */
-    const onlyStatus = Object.keys(updateData).every((k) => k === 'status');
-    if (onlyStatus && updateData.status !== undefined) void sendStatus(order);
-    else void sendOrder(order);
+    orderChanged(order, wasShown);
 
     console.log(`[API/ORDERS/ID] Commande ${id} modifiée par admin ${adminAuth.email}`);
 
@@ -394,9 +391,10 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
 
     const orderRef = (order as any).ref;
-    const deletedOrder = order.toJSON();
+    const wasShown = orderShown(order);
+    const deleted = order.get({ plain: true });
     await order.destroy();
-    void sendDeleted(deletedOrder);
+    orderChanged(deleted, wasShown);
 
     console.log(`[API/ORDERS/ID] Commande ${orderRef} supprimée par admin ${adminAuth.email}`);
 

@@ -1,7 +1,7 @@
 /**
  * ============================================
  * FEEL ME - Configuration Next.js (frontend)
- * Proxy /api et /uploads vers le backend Railway
+ * Proxy /api, /uploads et /aja vers le backend Railway
  * ============================================
  */
 
@@ -25,6 +25,11 @@ const nextConfig: NextConfig = {
       {
         source: "/uploads/:path*",
         destination: `${API_URL}/uploads/:path*`,
+      },
+      {
+        // AJA : la porte à laquelle AJA frappe, servie par le backend
+        source: "/aja",
+        destination: `${API_URL}/aja`,
       },
     ];
   },

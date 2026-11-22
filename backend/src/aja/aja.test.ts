@@ -1,291 +1,181 @@
-/**
- * Tests de l'intégration AJA (sans base ni réseau).
- * Lancer : npm test
- */
-
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Command, toMinor } from '@ajaflow/sdk';
-import { buildOrderInput, normalizePhone, imageUrl } from './mapping';
-import { CataloguePort, createSingleFlight, OrderStore, processCommandsOnce, ShopRefusal } from './decisions';
-import { OrderStatus, parseStatus } from './statuses';
+import { Refusal } from '@ajaflow/sdk';
+import { Op } from 'sequelize';
+import { imageUrl, isVisible, parseOrderCursor, parseStatus, toAjaOrder } from './orders';
+import {
+  PRODUCT_FORM,
+  afterWhere,
+  parseProductCursor,
+  ownImagePath,
+  packContentsText,
+  packToAja,
+  parsePackContents,
+  parseRef,
+  pickCategory,
+  productToAja,
+  readValues,
+} from './products';
+import type { OrderAttributes } from '../models/Order';
+import type { PackAttributes } from '../models/Pack';
+import type { ProductAttributes } from '../models/Product';
 
-const baseOrder = {
-  id: 42,
-  ref: 'FM-20261121-ABCD',
+const bases = { api: 'https://api.example.com', front: 'https://www.feel-me.store' };
+const when = new Date('2026-11-01T10:00:00Z');
+
+const order = (o: Partial<OrderAttributes> = {}): OrderAttributes => ({
+  id: 7,
+  ref: 'FM-M-20261101-ABCD',
   firstName: 'Awa',
   lastName: 'Diop',
-  phone: '77 000 11 22',
-  email: 'awa@example.com',
-  address: 'Dakar, Plateau',
-  items: [
-    { type: 'product' as const, itemId: 1, name: 'Parfum Oud', quantity: 2, unitPrice: 15000, image: '/uploads/oud.jpg' },
-    { type: 'pack' as const, itemId: 3, name: 'Pack Découverte', quantity: 1, unitPrice: 25000 },
-  ],
-  totalAmount: 55000,
+  phone: '+221770000000',
+  email: 'non-fourni@manual.fm',
+  address: 'Non précisée',
+  items: [{ type: 'pack', itemId: 1, name: 'Pack 3 x Musc', quantity: 2, unitPrice: 5000, image: '/images/pack.jpeg' }],
+  totalAmount: 10000,
   deposit: 0,
   remaining: 0,
-  source: 'site' as const,
+  source: 'manual',
   notes: null,
-  status: 'paid' as const,
-  paymentMethod: 'Wave',
-};
-
-/* ---------- Correspondance d'une commande ---------- */
-
-test('commande payée du site → OrderInput complet', () => {
-  const body = buildOrderInput(baseOrder, { api: 'https://api.feelme.test', front: 'https://www.feelme.test' }).toJSON();
-  assert.equal(body.external_id, '42');
-  assert.equal(body.status, 'payée');
-  assert.deepEqual(body.allowed_next, ['expédiée', 'annulée']);
-  assert.equal(body.payment_status, 'paid');
-  assert.equal(body.payment_mode, 'Wave');
-  assert.equal(body.total, 55000);
-  assert.equal(body.currency, 'XOF');
-  assert.deepEqual(body.customer, { name: 'Awa Diop', phone: '+221770001122', email: 'awa@example.com' });
-  const lines = body.lines as Array<Record<string, any>>;
-  assert.equal(lines.length, 2);
-  assert.equal(lines[0].unit_price, 15000);
-  assert.equal(lines[0].extras.image_url, 'https://api.feelme.test/uploads/oud.jpg');
-  assert.equal(lines[1].extras.type, 'Pack');
-  const extras = body.extras as Record<string, unknown>;
-  assert.equal(extras.reference, 'FM-20261121-ABCD');
-  assert.equal(extras.adresse_livraison, 'Dakar, Plateau');
+  status: 'paid',
+  paymentToken: null,
+  paymentMethod: 'Espèces',
+  updatedAt: when,
+  ...o,
 });
 
-test('commande manuelle avec acompte, sans article ni e-mail', () => {
-  const body = buildOrderInput(
-    {
-      ...baseOrder,
-      source: 'manual',
-      status: 'pending',
-      items: [],
-      email: 'non-fourni@manual.fm',
-      address: 'Non précisée',
-      deposit: 20000,
-      remaining: 35000,
-      paymentMethod: 'Espèces',
-    },
-    { api: null, front: null }
-  ).toJSON();
-  assert.equal(body.status, 'en attente');
-  assert.deepEqual(body.allowed_next, ['payée', 'annulée']);
-  assert.equal(body.payment_status, 'pending');
-  assert.deepEqual(body.lines, [{ name: 'Commande FM-20261121-ABCD', quantity: 1, unit_price: 55000 }]);
-  assert.equal((body.customer as any).email ?? null, null);
-  const extras = body.extras as Record<string, unknown>;
-  assert.equal(extras.acompte, 20000);
-  assert.equal(extras.reste_a_payer, 35000);
-  assert.equal(extras.adresse_livraison, undefined);
-});
-
-/* ---------- Montants et formats ---------- */
-
-test('montants XOF : entiers, vide → null', () => {
-  assert.equal(toMinor('15000', 'XOF'), 15000);
-  assert.equal(toMinor('15000.00', 'XOF'), 15000);
-  assert.equal(toMinor('', 'XOF'), null);
-});
-
-test('téléphones et URL d’images', () => {
-  assert.equal(normalizePhone('770001122'), '+221770001122');
-  assert.equal(normalizePhone('221770001122'), '+221770001122');
-  assert.equal(normalizePhone('00221770001122'), '+221770001122');
-  assert.equal(normalizePhone('+33612345678'), '+33612345678');
-  assert.equal(normalizePhone(''), null);
-  const bases = { api: 'https://api.x/', front: 'https://www.x' };
-  assert.equal(imageUrl('https://cdn.x/a.jpg', bases), 'https://cdn.x/a.jpg');
-  assert.equal(imageUrl('uploads/a.jpg', bases), 'https://api.x/uploads/a.jpg');
-  assert.equal(imageUrl('/uploads/a.jpg', bases), 'https://api.x/uploads/a.jpg');
-  assert.equal(imageUrl('/images/feelme6ml.jpeg', bases), 'https://www.x/images/feelme6ml.jpeg');
-  assert.equal(imageUrl('/images/a.jpg', { api: 'https://api.x', front: null }), null);
-});
-
-test('libellés reconnus dans les deux sens', () => {
+test('statuts : libellé ou clé, sans accents ni majuscules', () => {
   assert.equal(parseStatus('Expédiée'), 'shipped');
+  assert.equal(parseStatus('expediee'), 'shipped');
   assert.equal(parseStatus('delivered'), 'delivered');
-  assert.equal(parseStatus('inconnu'), null);
+  assert.equal(parseStatus('perdue'), null);
 });
 
-/* ---------- Tâche des décisions ---------- */
-
-type Ack = { id: string; ok: boolean; status?: string; allowedNext?: string[]; reason?: string; externalId?: string };
-
-function fakeAja(rows: Array<Record<string, unknown>>) {
-  const acks: Ack[] = [];
-  return {
-    acks,
-    commands: {
-      async pending() {
-        return rows.map((r) => new Command(r));
-      },
-      async ack(id: string, ok: boolean, status?: string, allowedNext?: string[], reason?: string, externalId?: string) {
-        acks.push(externalId === undefined ? { id, ok, status, allowedNext, reason } : { id, ok, status, allowedNext, reason, externalId });
-      },
-    },
-  };
-}
-
-function fakeStore(initial: Record<string, OrderStatus>, failOn?: string): OrderStore & { db: Record<string, OrderStatus>; writes: number } {
-  const store = {
-    db: { ...initial },
-    writes: 0,
-    async getStatus(id: string) {
-      if (id === failOn) throw new Error('base indisponible');
-      return store.db[id] ?? null;
-    },
-    async setStatus(id: string, status: OrderStatus) {
-      store.writes++;
-      store.db[id] = status;
-    },
-  };
-  return store;
-}
-
-/** Catalogue factice : retient les appels ; « inconnu » → refus, « panne » → erreur. */
-function fakeCatalogue() {
-  const calls: string[] = [];
-  let next = 50;
-  const cat: CataloguePort & { calls: string[] } = {
-    calls,
-    async create(values) {
-      calls.push(`create ${JSON.stringify(values)}`);
-      return values.type === 'Pack' ? `pack-${next++}` : `produit-${next++}`;
-    },
-    async update(ref, values) {
-      if (ref === 'produit-404') throw new ShopRefusal('Produit introuvable sur le site.');
-      if (ref === 'produit-500') throw new Error('base indisponible');
-      calls.push(`update ${ref} ${JSON.stringify(values)}`);
-    },
-    async setStock(ref, stock) {
-      calls.push(`stock ${ref} ${stock}`);
-    },
-    async remove(ref) {
-      calls.push(`delete ${ref}`);
-    },
-  };
-  return cat;
-}
-
-const cmd = (id: string, type: string, externalId: string | null, payload: Record<string, unknown>) => ({
-  id,
-  type,
-  ...(externalId ? { external_id: externalId } : {}),
-  payload,
-  created_at: '2026-11-21T10:00:00Z',
+test('commandes montrées : admin, ou site payée', () => {
+  assert.equal(isVisible({ source: 'manual', status: 'pending', paymentMethod: null }), true);
+  assert.equal(isVisible({ source: 'site', status: 'pending', paymentMethod: null }), false);
+  assert.equal(isVisible({ source: 'site', status: 'paid', paymentMethod: 'Wave' }), true);
+  assert.equal(isVisible({ source: 'site', status: 'cancelled', paymentMethod: null }), false);
+  assert.equal(isVisible({ source: 'site', status: 'cancelled', paymentMethod: 'Wave' }), true);
+  assert.equal(isVisible({ source: 'site', status: 'cancelled', paymentMethod: '' }), false);
+  assert.equal(isVisible({ source: 'site', status: 'cancelled', paymentMethod: ' ' }), false);
 });
 
-const transition = (id: string, externalId: string, to: string) => ({
-  id,
-  type: 'order.transition',
-  external_id: externalId,
-  payload: { status: to },
-  created_at: '2026-11-21T10:00:00Z',
-});
-
-test('décision acceptée : appliquée puis ack avec les boutons suivants', async () => {
-  const aja = fakeAja([transition('c1', '42', 'expédiée')]);
-  const store = fakeStore({ '42': 'paid' });
-  await processCommandsOnce(aja, store, fakeCatalogue());
-  assert.equal(store.db['42'], 'shipped');
-  assert.deepEqual(aja.acks, [{ id: 'c1', ok: true, status: 'expédiée', allowedNext: ['livrée', 'annulée'], reason: undefined }]);
-});
-
-test('décision refusée : passage interdit ou commande inconnue', async () => {
-  const aja = fakeAja([transition('c1', '42', 'livrée'), transition('c2', '999', 'payée')]);
-  const store = fakeStore({ '42': 'cancelled' });
-  await processCommandsOnce(aja, store, fakeCatalogue());
-  assert.equal(store.db['42'], 'cancelled');
-  assert.equal(aja.acks[0].ok, false);
-  assert.match(aja.acks[0].reason ?? '', /annulée.*livrée/);
-  assert.equal(aja.acks[1].ok, false);
-  assert.match(aja.acks[1].reason ?? '', /introuvable/);
-});
-
-test('type non traité : refusé unsupported_type, la file avance', async () => {
-  const aja = fakeAja([
-    { id: 'p1', type: 'invoice.refund', external_id: '7', payload: {}, created_at: '2026-11-21T10:00:00Z' },
-    transition('c2', '42', 'payée'),
-  ]);
-  const store = fakeStore({ '42': 'pending' });
-  await processCommandsOnce(aja, store, fakeCatalogue());
-  assert.deepEqual(aja.acks[0], { id: 'p1', ok: false, status: undefined, allowedNext: [], reason: 'unsupported_type' });
-  assert.equal(aja.acks[1].ok, true);
-  assert.equal(store.db['42'], 'paid');
-});
-
-test('décision rejouée : sans effet, reconfirmée', async () => {
-  const aja = fakeAja([transition('c1', '42', 'payée')]);
-  const store = fakeStore({ '42': 'paid' });
-  await processCommandsOnce(aja, store, fakeCatalogue());
-  assert.equal(store.writes, 0);
-  assert.equal(aja.acks[0].ok, true);
-  assert.equal(aja.acks[0].status, 'payée');
-});
-
-test('panne chez nous : pas d’ack, la décision reviendra', async () => {
-  const aja = fakeAja([transition('c1', '42', 'payée')]);
-  const store = fakeStore({ '42': 'pending' }, '42');
-  await assert.rejects(processCommandsOnce(aja, store, fakeCatalogue()), /base indisponible/);
-  assert.equal(aja.acks.length, 0);
-});
-
-/* ---------- Décisions produit ---------- */
-
-test('product.probe : confirmée sans rien changer', async () => {
-  const aja = fakeAja([cmd('s1', 'product.probe', null, {})]);
-  const catalogue = fakeCatalogue();
-  await processCommandsOnce(aja, fakeStore({}), catalogue);
-  assert.deepEqual(aja.acks, [{ id: 's1', ok: true, status: undefined, allowedNext: undefined, reason: undefined }]);
-  assert.equal(catalogue.calls.length, 0);
-});
-
-test('product.create : ack avec la référence attribuée (produit ou pack)', async () => {
-  const aja = fakeAja([
-    cmd('c1', 'product.create', null, { schema_version: 1, values: { nom: 'Ambre', prix: 9000, type: 'Parfum' } }),
-    cmd('c2', 'product.create', null, { schema_version: 1, values: { nom: 'Coffret', prix: 20000, type: 'Pack' } }),
-  ]);
-  await processCommandsOnce(aja, fakeStore({}), fakeCatalogue());
-  assert.equal(aja.acks[0].ok, true);
-  assert.equal(aja.acks[0].externalId, 'produit-50');
-  assert.equal(aja.acks[1].externalId, 'pack-51');
-});
-
-test('product.update, product.stock, product.delete : appliqués puis confirmés', async () => {
-  const aja = fakeAja([
-    cmd('u1', 'product.update', 'produit-12', { external_id: 'produit-12', schema_version: 1, values: { prix: 16000 } }),
-    cmd('k1', 'product.stock', 'produit-12', { external_id: 'produit-12', stock: 4 }),
-    cmd('d1', 'product.delete', 'pack-3', { external_id: 'pack-3' }),
-  ]);
-  const catalogue = fakeCatalogue();
-  await processCommandsOnce(aja, fakeStore({}), catalogue);
-  assert.deepEqual(catalogue.calls, ['update produit-12 {"prix":16000}', 'stock produit-12 4', 'delete pack-3']);
-  assert.deepEqual(aja.acks.map((a) => [a.id, a.ok]), [['u1', true], ['k1', true], ['d1', true]]);
-});
-
-test('décision produit refusée avec motif ; panne = pas d’ack', async () => {
-  const refused = fakeAja([cmd('u1', 'product.update', 'produit-404', { values: { prix: 1 } })]);
-  await processCommandsOnce(refused, fakeStore({}), fakeCatalogue());
-  assert.equal(refused.acks[0].ok, false);
-  assert.equal(refused.acks[0].reason, 'Produit introuvable sur le site.');
-
-  const down = fakeAja([cmd('u2', 'product.update', 'produit-500', { values: { prix: 1 } })]);
-  await assert.rejects(processCommandsOnce(down, fakeStore({}), fakeCatalogue()), /base indisponible/);
-  assert.equal(down.acks.length, 0);
-});
-
-test('un seul relevé à la fois', async () => {
-  let running = 0;
-  let maxRunning = 0;
-  let runs = 0;
-  const flight = createSingleFlight(async () => {
-    running++;
-    runs++;
-    maxRunning = Math.max(maxRunning, running);
-    await new Promise((r) => setTimeout(r, 20));
-    running--;
+test('commande → AJA : statuts en français, image https, email factice retiré', () => {
+  const o = toAjaOrder(order(), bases);
+  assert.equal(o.status, 'Payée');
+  assert.deepEqual(o.allowedNext, ['Expédiée', 'Annulée']);
+  assert.equal(o.paymentStatus, 'paid');
+  assert.equal(o.total, 10000);
+  assert.equal(o.currency, 'XOF');
+  assert.deepEqual(o.customer, { name: 'Awa Diop', phone: '+221770000000', email: null });
+  assert.deepEqual(o.lines[0], {
+    name: 'Pack 3 x Musc',
+    quantity: 2,
+    unitPrice: 5000,
+    extras: { image_url: 'https://www.feel-me.store/images/pack.jpeg', type: 'Pack' },
   });
-  await Promise.all([flight(), flight(), flight()]);
-  assert.equal(maxRunning, 1);
-  assert.equal(runs, 2); // le premier + un relevé de rattrapage
+  assert.equal(o.extras?.adresse_livraison, undefined);
+});
+
+test('commande sans article : une ligne au total', () => {
+  const o = toAjaOrder(order({ items: [], status: 'pending', deposit: 3000, remaining: 7000 }), bases);
+  assert.deepEqual(o.lines, [{ name: 'Commande FM-M-20261101-ABCD', quantity: 1, unitPrice: 10000 }]);
+  assert.equal(o.paymentStatus, 'pending');
+  assert.equal(o.extras?.acompte, 3000);
+  assert.equal(o.extras?.reste_a_payer, 7000);
+});
+
+test('images : /images sur le front, /uploads sur le backend', () => {
+  assert.equal(imageUrl('/images/a.jpg', bases), 'https://www.feel-me.store/images/a.jpg');
+  assert.equal(imageUrl('/uploads/a.jpg', bases), 'https://api.example.com/uploads/a.jpg');
+  assert.equal(imageUrl('https://cdn.x/a.jpg', bases), 'https://cdn.x/a.jpg');
+  assert.equal(ownImagePath('https://api.example.com/uploads/a.jpg', bases), '/uploads/a.jpg');
+  assert.equal(ownImagePath('https://cdn.x/a.jpg', bases), null);
+});
+
+test('références', () => {
+  assert.deepEqual(parseRef('produit-12'), { kind: 'product', id: 12 });
+  assert.deepEqual(parseRef('pack-3'), { kind: 'pack', id: 3 });
+  assert.equal(parseRef('12'), null);
+});
+
+test('parfum et pack → AJA : clés du formulaire uniquement', () => {
+  const keys = new Set(PRODUCT_FORM.fields.map((f) => f.key));
+  const p = productToAja(
+    {
+      id: 1, name: 'Musc 3ml', slug: 'musc-3ml', description: null, price: 2500, promoPrice: null,
+      image: '/images/m.jpeg', categoryId: 1, volume: '3ml', stock: 40, isActive: true, updatedAt: when,
+    } as ProductAttributes,
+    'Musc',
+    bases
+  );
+  assert.equal(p.id, 'produit-1');
+  assert.deepEqual(p.values, {
+    photo: 'https://www.feel-me.store/images/m.jpeg', nom: 'Musc 3ml', prix: 2500, stock: 40,
+    en_vente: true, type: 'Parfum', categorie: 'Musc', contenance: '3ml',
+  });
+  const k = packToAja(
+    {
+      id: 1, name: 'Pack 3', slug: 'pack-3', description: null, price: 6000, promoPrice: 5000, image: null,
+      categoryId: null, items: [{ productId: 1, productName: 'Ancien nom', quantity: 3 }], isActive: true, updatedAt: when,
+    } as PackAttributes,
+    null,
+    bases,
+    new Map([[1, 'Musc 3ml']])
+  );
+  assert.equal(k.id, 'pack-1');
+  assert.equal(k.values.contenu_pack, '3 × Musc 3ml');
+  for (const v of [p, k]) for (const key of Object.keys(v.values)) assert.ok(keys.has(key), key);
+});
+
+test('valeurs AJA → site', () => {
+  assert.deepEqual(readValues({ nom: ' Musc ', prix: 3000, en_vente: false, type: 'Parfum', stock: '12' }), {
+    name: 'Musc', price: 3000, active: false, kind: 'product', stock: 12,
+  });
+  assert.equal(readValues({ photo: ['https://a/b.jpg'] }).photo, 'https://a/b.jpg');
+  assert.throws(() => readValues({ prix: 0 }), Refusal);
+  assert.throws(() => readValues({ prix: '12.5' }), Refusal);
+  assert.throws(() => readValues({ nom: '' }), Refusal);
+  assert.throws(() => readValues({ type: 'Bougie' }), Refusal);
+});
+
+test('catégorie', () => {
+  const cats = [{ id: 1, name: 'Musc' }, { id: 2, name: 'Oud' }];
+  assert.equal(pickCategory(null, cats), 1);
+  assert.equal(pickCategory('oud', cats), 2);
+  assert.throws(() => pickCategory('Bougie', cats), /Catégories : Musc, Oud/);
+});
+
+test('contenu du pack : nom actuel, ancien nom ou refus', () => {
+  const products = [{ id: 1, name: 'Musc Tahara Original 3ml' }, { id: 2, name: 'Oud 6ml' }];
+  assert.deepEqual(parsePackContents('3 × Musc Tahara Original 3ml\n1 x oud 6ml', products), [
+    { productId: 1, productName: 'Musc Tahara Original 3ml', quantity: 3 },
+    { productId: 2, productName: 'Oud 6ml', quantity: 1 },
+  ]);
+  assert.deepEqual(parsePackContents('3 × Musc Tahara 3ml', products, [{ id: 1, name: 'Musc Tahara 3ml' }]), [
+    { productId: 1, productName: 'Musc Tahara Original 3ml', quantity: 3 },
+  ]);
+  assert.throws(() => parsePackContents('Rose', products), /introuvable/);
+  assert.throws(() => parsePackContents('', products), Refusal);
+  assert.equal(packContentsText([{ productId: 9, quantity: 2 }]), '2 × produit 9');
+});
+
+test('curseurs : « après (updatedAt, id) », texte inconnu = première page', () => {
+  assert.deepEqual(parseOrderCursor('1731000000000_42'), { t: 1731000000000, id: 42 });
+  assert.equal(parseOrderCursor(null), null);
+  assert.equal(parseOrderCursor('100'), null);
+  assert.deepEqual(parseProductCursor('1731000000000_pack_3'), { t: 1731000000000, kind: 'pack', id: 3 });
+  assert.equal(parseProductCursor('1731000000000_bougie_3'), null);
+});
+
+test('catalogue : après un pack à l’instant T, les parfums de T suivent ; après un parfum, les packs de T sont passés', () => {
+  const t = 1731000000000;
+  const T = new Date(t);
+  assert.deepEqual(afterWhere('product', null), {});
+  assert.deepEqual(afterWhere('product', { t, kind: 'pack', id: 9 }), { updatedAt: { [Op.gte]: T } });
+  assert.deepEqual(afterWhere('pack', { t, kind: 'product', id: 1 }), { updatedAt: { [Op.gt]: T } });
+  assert.deepEqual(afterWhere('pack', { t, kind: 'pack', id: 4 }), {
+    [Op.or]: [{ updatedAt: { [Op.gt]: T } }, { updatedAt: T, id: { [Op.gt]: 4 } }],
+  });
 });
