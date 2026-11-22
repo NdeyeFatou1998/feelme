@@ -13,6 +13,7 @@ import { Op, WhereOptions } from 'sequelize';
 import { Refusal, type Order as AjaOrder, type OrdersAdapter } from '@ajaflow/sdk';
 import { Order } from '../models';
 import type { OrderAttributes } from '../models/Order';
+import { updateStock } from '../stock';
 
 type Status = OrderAttributes['status'];
 
@@ -174,6 +175,7 @@ export function ordersAdapter(bases: () => ImageBases): OrdersAdapter {
           throw new Refusal(`Impossible de passer de « ${STATUS_LABELS[current]} » à « ${STATUS_LABELS[target]} ».`);
         }
         await row.update({ status: target });
+        updateStock(plain(row).id);
       }
       return toAjaOrder(plain(row), bases());
     },

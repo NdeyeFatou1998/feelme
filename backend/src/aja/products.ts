@@ -168,7 +168,8 @@ export function readValues(v: Record<string, unknown>): Incoming {
   if (has(v, 'prix_promo')) out.promoPrice = money(v.prix_promo, 'Prix promo') || null;
   if (has(v, 'stock') && v.stock !== null && v.stock !== '') {
     const n = typeof v.stock === 'number' ? v.stock : Number(String(v.stock).trim());
-    if (!Number.isInteger(n) || n < 0) throw new Refusal(`Stock invalide : « ${String(v.stock)} ».`);
+    // Un stock négatif est permis : le site accepte les commandes en rupture (il indique ce qu'il manque).
+    if (!Number.isInteger(n)) throw new Refusal(`Stock invalide : « ${String(v.stock)} ».`);
     out.stock = n;
   }
   if (has(v, 'en_vente') && v.en_vente !== null && v.en_vente !== '') out.active = bool(v.en_vente);
