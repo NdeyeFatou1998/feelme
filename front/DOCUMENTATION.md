@@ -128,9 +128,9 @@ feelme-app/
 - `delivered` : Livrée
 - `cancelled` : Annulée
 
-## Compte Admin par défaut
+## Compte Admin
 - **Email** : softechiris@gmail.com
-- **Password** : Poiuytr123@
+- **Mot de passe** : jamais dans le dépôt (il est public). Le premier admin est créé par le seed avec `SEED_ADMIN_PASSWORD` (variable d'environnement) ; on le change ensuite depuis l'admin.
 - **URL** : http://localhost:3000/admin/login
 
 ## Produits initiaux (seed)

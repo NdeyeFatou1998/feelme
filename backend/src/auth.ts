@@ -6,10 +6,19 @@
  * ============================================
  */
 
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { Request } from 'express';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'feelme_default_secret';
+/**
+ * Le code est public : un secret écrit ici permettrait à n'importe qui de fabriquer
+ * un jeton admin. Sans JWT_SECRET, on tire un secret au hasard au démarrage :
+ * personne ne peut le deviner, et l'admin doit juste se reconnecter après un redémarrage.
+ */
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+if (!process.env.JWT_SECRET) {
+  console.error('[AUTH] JWT_SECRET absente : secret aléatoire, les sessions admin ne survivront pas à un redémarrage.');
+}
 
 export interface JWTPayload {
   adminId: number;
