@@ -82,6 +82,10 @@ test('paiement : ce que feel-me sait, rien de plus', () => {
   const pay = (paymentMethod: string | null, paymentToken: string | null = null) => toAjaPayment({ paymentMethod, paymentToken });
   assert.deepEqual(pay('Wave', 'tok_123'), { label: 'Wave', method: 'mobile_money', provider: 'Wave', reference: 'tok_123' });
   assert.deepEqual(pay('Orange Money'), { label: 'Orange Money', method: 'mobile_money', provider: 'Orange Money' });
+  assert.deepEqual(pay('Orange Money CI'), { label: 'Orange Money CI', method: 'mobile_money', provider: 'Orange Money' });
+  assert.deepEqual(pay('Wave CI'), { label: 'Wave CI', method: 'mobile_money', provider: 'Wave' });
+  assert.deepEqual(pay('Moov Money BJ'), { label: 'Moov Money BJ', method: 'mobile_money', provider: 'Moov Money' });
+  assert.deepEqual(pay('Wavex'), { label: 'Wavex' });
   assert.deepEqual(pay('Carte Bancaire'), { label: 'Carte bancaire', method: 'card' });
   assert.deepEqual(pay('Virement bancaire'), { label: 'Virement bancaire', method: 'bank_transfer' });
   assert.deepEqual(pay('PayTech', 'tok_9'), { label: 'Paiement en ligne', provider: 'PayTech', reference: 'tok_9' });

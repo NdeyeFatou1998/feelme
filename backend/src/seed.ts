@@ -15,17 +15,17 @@ export async function seed() {
   try {
     await syncDatabase();
 
+    /* Le code est public : le premier admin prend son mot de passe dans l'environnement, jamais ici. */
     const adminEmail = 'softechiris@gmail.com';
     const existingAdmin = await Admin.findOne({ where: { email: adminEmail } });
-    if (!existingAdmin) {
-      const hashedPassword = await bcrypt.hash('Poiuytr123@', 12);
-      await Admin.create({
-        email: adminEmail,
-        password: hashedPassword,
-      });
-      console.log('[SEED] Admin créé:', adminEmail);
-    } else {
+    const seedPassword = process.env.SEED_ADMIN_PASSWORD;
+    if (existingAdmin) {
       console.log('[SEED] Admin existe déjà.');
+    } else if (!seedPassword || seedPassword.length < 12) {
+      console.warn('[SEED] Admin non créé : définissez SEED_ADMIN_PASSWORD (12 caractères au moins).');
+    } else {
+      await Admin.create({ email: adminEmail, password: await bcrypt.hash(seedPassword, 12) });
+      console.log('[SEED] Admin créé:', adminEmail);
     }
 
     let muscCategory = await Category.findOne({ where: { slug: 'musc' } });
