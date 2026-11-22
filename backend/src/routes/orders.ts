@@ -4,7 +4,6 @@ import { authenticateAdmin } from '../auth';
 import { createPaymentRequest } from '../paytech';
 import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../email';
 import { generateInvoicePDF, CompanyInfo, DEFAULT_COMPANY } from '../invoice';
-import { orderChanged, orderShown } from '../aja';
 
 const router = Router();
 
@@ -147,7 +146,6 @@ router.post('/manual', async (req: Request, res: Response) => {
     });
 
     console.log(`[ORDERS/MANUAL] Commande manuelle créée : ${ref} par admin`);
-    orderChanged(order);
 
     res.status(201).json({ success: true, order });
   } catch (error) {
@@ -197,7 +195,6 @@ router.post('/confirm', async (req: Request, res: Response) => {
 
       await order.reload();
       const updatedOrder = order.toJSON();
-      orderChanged(order);
 
       try {
         await Promise.all([
@@ -355,10 +352,8 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (body.remaining !== undefined) updateData.remaining = body.remaining;
     if (body.items !== undefined) updateData.items = body.items;
 
-    const wasShown = orderShown(order);
     await order.update(updateData);
     await order.reload();
-    orderChanged(order, wasShown);
 
     console.log(`[API/ORDERS/ID] Commande ${id} modifiée par admin ${adminAuth.email}`);
 
@@ -391,10 +386,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
 
     const orderRef = (order as any).ref;
-    const wasShown = orderShown(order);
-    const deleted = order.get({ plain: true });
     await order.destroy();
-    orderChanged(deleted, wasShown);
 
     console.log(`[API/ORDERS/ID] Commande ${orderRef} supprimée par admin ${adminAuth.email}`);
 

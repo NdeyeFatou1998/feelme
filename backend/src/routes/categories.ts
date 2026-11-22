@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Category, Product, syncDatabase } from '../models';
 import { authenticateAdmin } from '../auth';
-import { catalogueInCategory, categoryChanged, notify } from '../aja';
 
 const router = Router();
 
@@ -95,7 +94,6 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (image !== undefined) updateData.image = image;
 
     await category.update(updateData);
-    if (name) notify(categoryChanged(id));
     res.json({ success: true, category });
   } catch (error) {
     console.error('[API/CATEGORIES] PUT error:', error);
@@ -120,9 +118,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    const inCategory = await catalogueInCategory(id);
     await category.destroy();
-    notify(categoryChanged(id, inCategory));
     res.json({ success: true, message: 'Catégorie supprimée' });
   } catch (error) {
     console.error('[API/CATEGORIES] DELETE error:', error);
