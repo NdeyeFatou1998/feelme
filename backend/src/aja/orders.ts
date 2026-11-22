@@ -10,10 +10,11 @@
  */
 
 import { Op, WhereOptions } from 'sequelize';
-import { Refusal, type Order as AjaOrder, type OrdersAdapter } from '@ajaflow/sdk';
+import { Refusal, type Order as AjaOrder, type OrderPayment, type OrdersAdapter } from '@ajaflow/sdk';
 import { Order } from '../models';
 import type { OrderAttributes } from '../models/Order';
 import { updateStock } from '../stock';
+import { generateInvoicePDF, loadCompanyInfo } from '../invoice';
 
 type Status = OrderAttributes['status'];
 
@@ -48,6 +49,41 @@ export function parseStatus(value: string): Status | null {
 }
 
 const MANUAL_EMAIL = 'non-fourni@manual.fm';
+
+/**
+ * Ce que feel-me sait du paiement : le texte « Mode de paiement » (renvoyé
+ * par PayTech, ou choisi dans l'admin) et, pour un paiement en ligne, le
+ * jeton PayTech. Rien d'autre (jamais de carte) : on n'envoie que cela,
+ * et un moyen qu'on ne sait pas classer part sans `method`.
+ */
+const PAYMENT_WORDS: Array<{ match: RegExp; method?: NonNullable<OrderPayment['method']>; provider?: string; label?: string }> = [
+  { match: /^wave$/, method: 'mobile_money', provider: 'Wave' },
+  { match: /^(orange[ -]?money|om)$/, method: 'mobile_money', provider: 'Orange Money' },
+  { match: /^free[ -]?money$/, method: 'mobile_money', provider: 'Free Money' },
+  { match: /^(e-?money|expresso)$/, method: 'mobile_money', provider: 'E-Money' },
+  { match: /^wizall/, method: 'mobile_money', provider: 'Wizall' },
+  { match: /^visa$/, method: 'card', provider: 'Visa' },
+  { match: /^master ?card$/, method: 'card', provider: 'Mastercard' },
+  { match: /^(carte( bancaire)?|cb|card|credit card)$/, method: 'card', label: 'Carte bancaire' },
+  { match: /^paypal$/, method: 'other', provider: 'PayPal' },
+  { match: /^virement( bancaire)?$/, method: 'bank_transfer', label: 'Virement bancaire' },
+  { match: /^(paytech|paiement en ligne)$/, provider: 'PayTech', label: 'Paiement en ligne' },
+  { match: /^especes$/, label: 'Espèces' },
+  { match: /^telephone$/, label: 'Téléphone' },
+  { match: /^autre$/, method: 'other', label: 'Autre' },
+];
+
+export function toAjaPayment(o: Pick<OrderAttributes, 'paymentMethod' | 'paymentToken'>): OrderPayment | null {
+  const text = (o.paymentMethod ?? '').trim().replace(/\s+/g, ' ');
+  const reference = o.paymentToken?.trim() || null;
+  if (!text) return reference ? { provider: 'PayTech', reference } : null;
+  const known = PAYMENT_WORDS.find((w) => w.match.test(fold(text)));
+  const payment: OrderPayment = { label: known?.label ?? text };
+  if (known?.method) payment.method = known.method;
+  if (known?.provider) payment.provider = known.provider;
+  if (reference) payment.reference = reference;
+  return payment;
+}
 
 /**
  * Commandes montrées au marchand : celles saisies dans l'admin, et celles
@@ -110,6 +146,9 @@ export function toAjaOrder(o: OrderAttributes, bases: ImageBases): AjaOrder {
     allowedNext: (NEXT[o.status] ?? []).map((s) => STATUS_LABELS[s]),
     paymentStatus: o.status === 'paid' || o.status === 'shipped' || o.status === 'delivered' ? 'paid' : 'pending',
     paymentMode: o.paymentMethod,
+    payment: toAjaPayment(o),
+    /* La facture est refaite à chaque demande avec la commande du moment (statut, paiement…) : elle date de son dernier changement. */
+    invoiceAt: o.updatedAt as Date,
     total: Number(o.totalAmount) || 0,
     currency: 'XOF',
     customer: {
@@ -123,6 +162,12 @@ export function toAjaOrder(o: OrderAttributes, bases: ImageBases): AjaOrder {
 }
 
 const plain = (row: Order) => row.get({ plain: true }) as OrderAttributes;
+
+/** La commande d'un id AJA ; un id qui n'est pas un nombre entier n'en désigne aucune. */
+function findOrder(id: string | number): Promise<Order | null> {
+  const n = Number(id);
+  return Number.isSafeInteger(n) && n > 0 ? Order.findByPk(n) : Promise.resolve(null);
+}
 
 /** « 1731000000000_42 » → { t, id } ; tout autre texte → première page. */
 export function parseOrderCursor(cursor: string | null): { t: number; id: number } | null {
@@ -158,14 +203,14 @@ export function ordersAdapter(bases: () => ImageBases): OrdersAdapter {
     },
 
     async get(id) {
-      const row = await Order.findByPk(Number(id));
+      const row = await findOrder(id);
       if (!row) return null;
       const o = plain(row);
       return isVisible(o) ? toAjaOrder(o, bases()) : null;
     },
 
     async changeStatus({ id, status }) {
-      const row = await Order.findByPk(Number(id));
+      const row = await findOrder(id);
       if (!row) throw new Refusal('Commande introuvable sur le site.');
       const current = plain(row).status;
       const target = parseStatus(status);
@@ -178,6 +223,15 @@ export function ordersAdapter(bases: () => ImageBases): OrdersAdapter {
         updateStock(plain(row).id);
       }
       return toAjaOrder(plain(row), bases());
+    },
+
+    /** La même facture PDF que le bouton « Facture » de l'admin. */
+    async invoice(id) {
+      const row = await findOrder(id);
+      if (!row) return null;
+      const o = plain(row);
+      if (!isVisible(o)) return null;
+      return generateInvoicePDF(o, await loadCompanyInfo());
     },
   };
 }

@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { Order, Settings, syncDatabase } from '../models';
+import { Order, syncDatabase } from '../models';
 import { authenticateAdmin } from '../auth';
 import { createPaymentRequest } from '../paytech';
 import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../email';
-import { generateInvoicePDF, CompanyInfo, DEFAULT_COMPANY } from '../invoice';
+import { generateInvoicePDF, loadCompanyInfo } from '../invoice';
 import { orderChanged, orderShown } from '../aja';
 import { releaseBeforeDelete, updateStock } from '../stock';
 
@@ -271,22 +271,7 @@ router.get('/:id/invoice', async (req: Request, res: Response) => {
       return;
     }
 
-    let companyInfo: CompanyInfo = DEFAULT_COMPANY;
-    try {
-      const settings = await Settings.findByPk(1);
-      if (settings) {
-        const s = settings.toJSON();
-        companyInfo = {
-          companyName: s.companyName || DEFAULT_COMPANY.companyName,
-          companyEmail: s.companyEmail || DEFAULT_COMPANY.companyEmail,
-          companyPhone: s.companyPhone || DEFAULT_COMPANY.companyPhone,
-          companyAddress: s.companyAddress || DEFAULT_COMPANY.companyAddress,
-          companyWebsite: s.companyWebsite || DEFAULT_COMPANY.companyWebsite,
-        };
-      }
-    } catch (e) {
-      console.warn('[API/INVOICE] Settings non chargées, valeurs par défaut');
-    }
+    const companyInfo = await loadCompanyInfo();
 
     const orderData = order.toJSON();
     const pdfBuffer = await generateInvoicePDF(orderData, companyInfo);

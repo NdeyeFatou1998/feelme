@@ -7,8 +7,7 @@
 
 import nodemailer from 'nodemailer';
 import { OrderAttributes, OrderItem } from './models/Order';
-import { generateInvoicePDF, CompanyInfo, DEFAULT_COMPANY } from './invoice';
-import Settings from './models/Settings';
+import { generateInvoicePDF, loadCompanyInfo, CompanyInfo } from './invoice';
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
@@ -19,25 +18,6 @@ const transporter = nodemailer.createTransport({
     pass: process.env.SMTP_PASS,
   },
 });
-
-async function loadCompanyInfo(): Promise<CompanyInfo> {
-  try {
-    const settings = await Settings.findByPk(1);
-    if (settings) {
-      const s = settings.toJSON();
-      return {
-        companyName: s.companyName || DEFAULT_COMPANY.companyName,
-        companyEmail: s.companyEmail || DEFAULT_COMPANY.companyEmail,
-        companyPhone: s.companyPhone || DEFAULT_COMPANY.companyPhone,
-        companyAddress: s.companyAddress || DEFAULT_COMPANY.companyAddress,
-        companyWebsite: s.companyWebsite || DEFAULT_COMPANY.companyWebsite,
-      };
-    }
-  } catch (e) {
-    console.warn('[EMAIL] Impossible de charger Settings, utilisation des valeurs par défaut');
-  }
-  return DEFAULT_COMPANY;
-}
 
 function generateInvoiceHTML(order: OrderAttributes, co: CompanyInfo): string {
   const payMethod = order.paymentMethod || 'PayTech';
