@@ -4,6 +4,7 @@ import { verifyIPNSha256 } from '../paytech';
 import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../email';
 import { orderChanged } from '../aja';
 import { updateStock } from '../stock';
+import { paymentDetailsFromIpn } from '../paymentDetails';
 
 const router = Router();
 
@@ -44,8 +45,17 @@ router.post('/ipn', async (req: Request, res: Response) => {
 
       const orderStatus = (order as any).dataValues.status;
 
-      if (orderStatus === 'paid') {
-        console.log(`[IPN] Commande ${ref_command} déjà payée, skip`);
+      if (orderStatus === 'paid' || orderStatus === 'shipped' || orderStatus === 'delivered') {
+        /* Le retour du client sur /commande/succes arrive souvent avant l'IPN : la commande est
+           déjà payée, mais en « Paiement en ligne ». On garde le vrai moyen (Wave, Orange Money…). */
+        const details = paymentDetailsFromIpn(order.get({ plain: true }) as any, payment_method, body.token);
+        if (details) {
+          await order.update(details);
+          orderChanged(order);
+          console.log(`[IPN] Commande ${ref_command} déjà payée, moyen de paiement enregistré : ${details.paymentMethod ?? '-'}`);
+        } else {
+          console.log(`[IPN] Commande ${ref_command} déjà payée, skip`);
+        }
         res.json({ success: true, message: 'Déjà traitée' });
         return;
       }

@@ -57,11 +57,15 @@ const MANUAL_EMAIL = 'non-fourni@manual.fm';
  * et un moyen qu'on ne sait pas classer part sans `method`.
  */
 const PAYMENT_WORDS: Array<{ match: RegExp; method?: NonNullable<OrderPayment['method']>; provider?: string; label?: string }> = [
-  { match: /^wave$/, method: 'mobile_money', provider: 'Wave' },
-  { match: /^(orange[ -]?money|om)$/, method: 'mobile_money', provider: 'Orange Money' },
-  { match: /^free[ -]?money$/, method: 'mobile_money', provider: 'Free Money' },
-  { match: /^(e-?money|expresso)$/, method: 'mobile_money', provider: 'E-Money' },
-  { match: /^wizall/, method: 'mobile_money', provider: 'Wizall' },
+  /* Moyens que PayTech renvoie (paramètre payment_method), et ceux de l'admin. */
+  { match: /^wave\b/, method: 'mobile_money', provider: 'Wave' },
+  { match: /^(orange[ -]?money\b|om$)/, method: 'mobile_money', provider: 'Orange Money' },
+  { match: /^free[ -]?money\b/, method: 'mobile_money', provider: 'Free Money' },
+  { match: /^(e-?money|expresso)\b/, method: 'mobile_money', provider: 'E-Money' },
+  { match: /^wizall\b/, method: 'mobile_money', provider: 'Wizall' },
+  { match: /^mtn\b/, method: 'mobile_money', provider: 'MTN Mobile Money' },
+  { match: /^moov\b/, method: 'mobile_money', provider: 'Moov Money' },
+  { match: /^tigo\b/, method: 'mobile_money', provider: 'Tigo Cash' },
   { match: /^visa$/, method: 'card', provider: 'Visa' },
   { match: /^master ?card$/, method: 'card', provider: 'Mastercard' },
   { match: /^(carte( bancaire)?|cb|card|credit card)$/, method: 'card', label: 'Carte bancaire' },
