@@ -105,19 +105,23 @@ export function verifyIPNSha256(body: Record<string, unknown>, keys: Keys): bool
 }
 
 /**
- * Vrai seulement si la notification vient de PayTech : le HMAC quand PayTech l'envoie,
- * sinon les empreintes SHA256 des clés. Sans clés configurées, rien n'est authentique.
+ * Vrai seulement si la notification vient de PayTech. Le HMAC (lié au prix et à la référence)
+ * est la preuve recommandée et PayTech l'envoie en production. Tant qu'on n'a pas vu un HMAC
+ * valide sur un vrai paiement, les empreintes SHA256 des clés restent acceptées, avec un
+ * avertissement dans les logs, pour ne jamais bloquer un vrai paiement.
+ * Sans clés configurées, rien n'est authentique.
  */
 export function isAuthenticIpn(
   body: Record<string, unknown>,
   keys: Keys = { apiKey: process.env.PAYTECH_API_KEY || '', apiSecret: process.env.PAYTECH_API_SECRET || '' }
 ): { ok: boolean; how: string } {
   if (!keys.apiKey || !keys.apiSecret) return { ok: false, how: 'clés PayTech absentes du serveur' };
-  if (body.hmac_compute !== undefined && body.hmac_compute !== null && body.hmac_compute !== '') {
-    return verifyIPNHmac(body, keys) ? { ok: true, how: 'HMAC' } : { ok: false, how: 'HMAC invalide' };
+  const hasHmac = body.hmac_compute !== undefined && body.hmac_compute !== null && body.hmac_compute !== '';
+  if (hasHmac && verifyIPNHmac(body, keys)) return { ok: true, how: 'HMAC' };
+  const hasSha = !!(body.api_key_sha256 || body.api_secret_sha256);
+  if (hasSha && verifyIPNSha256(body, keys)) {
+    return { ok: true, how: hasHmac ? 'SHA256 — ⚠️ HMAC ne correspond pas, à vérifier' : 'SHA256 (sans HMAC)' };
   }
-  if (body.api_key_sha256 || body.api_secret_sha256) {
-    return verifyIPNSha256(body, keys) ? { ok: true, how: 'SHA256' } : { ok: false, how: 'SHA256 invalide' };
-  }
+  if (hasHmac || hasSha) return { ok: false, how: 'signature invalide' };
   return { ok: false, how: 'aucune signature' };
 }
