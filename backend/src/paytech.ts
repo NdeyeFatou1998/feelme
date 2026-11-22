@@ -81,31 +81,43 @@ export async function createPaymentRequest(params: PaymentRequestParams): Promis
   }
 }
 
-export function verifyIPNHmac(
-  itemPrice: number,
-  refCommand: string,
-  receivedHmac: string
-): boolean {
-  const apiKey = process.env.PAYTECH_API_KEY || '';
-  const apiSecret = process.env.PAYTECH_API_SECRET || '';
-
-  const message = `${itemPrice}|${refCommand}|${apiKey}`;
-  const hmac = crypto.createHmac('sha256', apiSecret);
-  hmac.update(message);
-  const expectedHmac = hmac.digest('hex');
-
-  return expectedHmac === receivedHmac;
+/** Comparaison en temps constant de deux empreintes hexadécimales. */
+function sameHex(expected: string, received: unknown): boolean {
+  if (typeof received !== 'string' || !/^[0-9a-f]+$/i.test(received)) return false;
+  const a = Buffer.from(expected, 'hex');
+  const b = Buffer.from(received.toLowerCase(), 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-export function verifyIPNSha256(
-  receivedKeyHash: string,
-  receivedSecretHash: string
-): boolean {
-  const apiKey = process.env.PAYTECH_API_KEY || '';
-  const apiSecret = process.env.PAYTECH_API_SECRET || '';
+type Keys = { apiKey: string; apiSecret: string };
 
-  const expectedKeyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
-  const expectedSecretHash = crypto.createHash('sha256').update(apiSecret).digest('hex');
+/** HMAC-SHA256 de « item_price|ref_command|api_key » avec la clé secrète (méthode recommandée par PayTech). */
+export function verifyIPNHmac(body: Record<string, unknown>, keys: Keys): boolean {
+  const message = `${body.item_price}|${body.ref_command}|${keys.apiKey}`;
+  const expected = crypto.createHmac('sha256', keys.apiSecret).update(message).digest('hex');
+  return sameHex(expected, body.hmac_compute);
+}
 
-  return expectedKeyHash === receivedKeyHash && expectedSecretHash === receivedSecretHash;
+/** SHA256 des deux clés API (méthode classique de PayTech). */
+export function verifyIPNSha256(body: Record<string, unknown>, keys: Keys): boolean {
+  const sha = (v: string) => crypto.createHash('sha256').update(v).digest('hex');
+  return sameHex(sha(keys.apiKey), body.api_key_sha256) && sameHex(sha(keys.apiSecret), body.api_secret_sha256);
+}
+
+/**
+ * Vrai seulement si la notification vient de PayTech : le HMAC quand PayTech l'envoie,
+ * sinon les empreintes SHA256 des clés. Sans clés configurées, rien n'est authentique.
+ */
+export function isAuthenticIpn(
+  body: Record<string, unknown>,
+  keys: Keys = { apiKey: process.env.PAYTECH_API_KEY || '', apiSecret: process.env.PAYTECH_API_SECRET || '' }
+): { ok: boolean; how: string } {
+  if (!keys.apiKey || !keys.apiSecret) return { ok: false, how: 'clés PayTech absentes du serveur' };
+  if (body.hmac_compute !== undefined && body.hmac_compute !== null && body.hmac_compute !== '') {
+    return verifyIPNHmac(body, keys) ? { ok: true, how: 'HMAC' } : { ok: false, how: 'HMAC invalide' };
+  }
+  if (body.api_key_sha256 || body.api_secret_sha256) {
+    return verifyIPNSha256(body, keys) ? { ok: true, how: 'SHA256' } : { ok: false, how: 'SHA256 invalide' };
+  }
+  return { ok: false, how: 'aucune signature' };
 }

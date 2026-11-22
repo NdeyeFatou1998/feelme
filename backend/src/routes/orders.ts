@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import { Order, syncDatabase } from '../models';
 import { authenticateAdmin } from '../auth';
 import { createPaymentRequest } from '../paytech';
-import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../email';
 import { generateInvoicePDF, loadCompanyInfo } from '../invoice';
 import { orderChanged, orderShown } from '../aja';
 import { releaseBeforeDelete, updateStock } from '../stock';
@@ -158,91 +157,34 @@ router.post('/manual', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Page « Commande réussie » : dit où en est la commande, sans jamais la marquer payée.
+ * Seul l'IPN de PayTech, signé (voir routes/payment.ts), passe une commande en « Payée » :
+ * une simple référence ne doit pas suffire. La page interroge cette route jusqu'à l'IPN.
+ * Ne renvoie que ce que la page affiche, sans données de contact du client.
+ */
 router.post('/confirm', async (req: Request, res: Response) => {
   try {
     await syncDatabase();
-
-    let ref: string | null = null;
-    try {
-      ref = req.body?.ref || null;
-    } catch (parseError) {
-      console.error('[CONFIRM] Erreur parsing body:', parseError);
-    }
-
+    const ref = typeof req.body?.ref === 'string' ? req.body.ref.trim() : '';
     if (!ref) {
       res.status(400).json({ error: 'Référence manquante' });
       return;
     }
 
-    console.log(`[CONFIRM] Tentative de confirmation pour ref: ${ref}`);
-
     const order = await Order.findOne({ where: { ref } });
     if (!order) {
-      console.error(`[CONFIRM] Commande ${ref} introuvable`);
       res.status(404).json({ success: false, error: 'Commande introuvable' });
       return;
     }
 
-    const currentStatus = (order as any).dataValues.status;
-    console.log(`[CONFIRM] Commande ${ref} trouvée, statut actuel: ${currentStatus}`);
-
-    if (currentStatus === 'pending') {
-      const currentMethod =
-        (order as any).dataValues.payment_method || (order as any).dataValues.paymentMethod;
-      await order.update({
-        status: 'paid',
-        ...(currentMethod ? {} : { paymentMethod: 'Paiement en ligne' }),
-      });
-      console.log(
-        `[CONFIRM] ✅ Commande ${ref} confirmée → paid (canal: ${currentMethod || 'Paiement en ligne'})`
-      );
-
-      await order.reload();
-      const updatedOrder = order.toJSON();
-      orderChanged(order);
-      updateStock(updatedOrder.id);
-
-      try {
-        await Promise.all([
-          sendOrderConfirmationEmail(updatedOrder),
-          sendAdminNotificationEmail(updatedOrder),
-        ]);
-        console.log(`[CONFIRM] Emails envoyés pour commande ${ref}`);
-      } catch (emailError) {
-        console.error(`[CONFIRM] Erreur emails pour ${ref}:`, emailError);
-      }
-
-      res.json({
-        success: true,
-        message: 'Commande confirmée et emails envoyés',
-        order: updatedOrder,
-      });
-      return;
-    }
-
-    if (
-      currentStatus === 'paid' ||
-      currentStatus === 'shipped' ||
-      currentStatus === 'delivered'
-    ) {
-      const orderData = order.toJSON();
-      console.log(
-        `[CONFIRM] Commande ${ref} déjà en statut '${currentStatus}', pas de changement`
-      );
-      res.json({
-        success: true,
-        message: 'Commande déjà confirmée',
-        order: orderData,
-      });
-      return;
-    }
-
-    const orderData = order.toJSON();
-    console.log(`[CONFIRM] Commande ${ref} en statut '${currentStatus}', pas de changement`);
+    const o = order.get({ plain: true }) as import('../models/Order').OrderAttributes;
+    const paid = o.status === 'paid' || o.status === 'shipped' || o.status === 'delivered';
     res.json({
       success: true,
-      message: `Commande en statut: ${currentStatus}`,
-      order: orderData,
+      paid,
+      status: o.status,
+      order: { ref: o.ref, firstName: o.firstName, lastName: o.lastName, totalAmount: o.totalAmount, status: o.status },
     });
   } catch (error) {
     console.error('[CONFIRM] Erreur:', error);
@@ -290,6 +232,10 @@ router.get('/:id/invoice', async (req: Request, res: Response) => {
 
 router.get('/:id', async (req: Request, res: Response) => {
   try {
+    if (!authenticateAdmin(req)) {
+      res.status(401).json({ error: 'Non autorisé' });
+      return;
+    }
     await syncDatabase();
     const id = String(req.params.id);
 
